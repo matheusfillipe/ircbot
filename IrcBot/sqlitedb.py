@@ -17,14 +17,16 @@ from copy import copy
 
 
 class DB():
-    def __init__(self, dbFilePath, tableName, rowLabels):
+    def __init__(self, dbFilePath, tableName, rowLabels, keepOpen=False):
         '''dbFilePath: str. Path for the file to save the sqtile db on.
            tableName: str. Name of the table to use. 
            rowLabels: list. Strings with the data keys to store, columns of the table. 
+           keepOpen: bool. If set to True you will have to manually call connect and close. 
         '''
         self.filepath = dbFilePath
         self.tableName = tableName
         self.rowLabels = rowLabels
+        self.keepOpen = True
         self.checkIfExistsIfNotCreate()
 
     def toDict(self, data):
@@ -59,67 +61,78 @@ class DB():
         self.close()
         if not sorted(col_name_list) == sorted(self.rowLabels):
             self.deleteTable()
-            self.connect()
+            self._connect()
             self.cursor.execute("CREATE TABLE IF NOT EXISTS " + self.tableName +
                                 " (id INTEGER primary key AUTOINCREMENT," + str(self.rowLabels)[1:-1] + ")")
             self.close()
+
 
     def connect(self):
         self.connection = sqlite3.connect(self.filepath)
         self.cursor = self.connection.cursor()
         self.connected = True
 
+    def _connect(self):
+        if self.keepOpen:
+            return
+        self.connect()
+
     def close(self):
         self.connection.commit()
         self.connection.close()
         self.connected = False
 
-    def _salvarData(self, dado):
+    def _close(self):
+        if self.keepOpen:
+            return
+        self.close()
+
+    def _daveData(self, dado):
         dado = self.toList(dado)
         self.cursor.execute("INSERT INTO "+self.tableName+" ("+str(self.rowLabels)[
                             1:-1] + ")VALUES (" + (len(self.rowLabels)*"?,")[:-1]+")", dado)
 
     def newData(self, dado):
         # assert len(dado)==len(self.rowLabels), "ERRO: O dado deve ter o tamanho " + str(len(self.rowLabels))
-        self.connect()
-        self._salvarData(dado)
+        self._connect()
+        self._daveData(dado)
         id = copy(self.cursor.lastrowid)
-        self.close()
+        self._close()
         return id
 
     def saveDataList(self, lista):
-        self.connect()
-        [self._salvarData(dado) for dado in lista]
-        self.close()
+        self._connect()
+        [self._daveData(dado) for dado in lista]
+        self._close()
 
     def _getData(self, id):
         return self.toDict(list(list(self.cursor.execute("SELECT * FROM " + self.tableName + " WHERE id = ?", (id,)))[0])[1:])
 
     def getData(self, id):
-        self.connect()
+        self._connect()
         dado = self._getData(id)
-        self.close()
+        self._close()
         return dado
 
     def getDataWithId(self, id):
-        self.connect()
+        self._connect()
         dado = self._getData(id)
-        self.close()
+        self._close()
         dado.update({"id": id})
         return dado
 
     def getAll(self):
-        self.connect()
+        self._connect()
         dados = [self.toDict(row[1:]) for row in self.cursor.execute(
             "SELECT * FROM " + self.tableName)]
-        self.close()
+        self._close()
         return dados
 
     def getAllWithId(self):
-        self.connect()
+        self._connect()
         dados = [self.toDictWithId(row) for row in self.cursor.execute(
             "SELECT * FROM " + self.tableName)]
-        self.close()
+        self._close()
         return dados
 
     def findData(self, key, nome):
@@ -129,7 +142,7 @@ class DB():
             func = float
         except:
             pass
-        self.connect()
+        self._connect()
         if type(nome) == str:
             key = key
             idList = [[list(dado)[0], self.toDict(list(dado)[1:])[key]]
@@ -139,7 +152,7 @@ class DB():
             idList = [[list(dado)[0], self.toDict(list(dado)[1:])[key]]
                       for dado in list(self.cursor.execute("SELECT * FROM "+self.tableName))
                       if str(nome) == str(self.toDict(list(dado)[1:])[key])]
-        self.close()
+        self._close()
         try:
             return [x[0] for x in sorted(idList, key=lambda x: func(x[1]))]
         except ValueError as e:
@@ -152,7 +165,7 @@ class DB():
             func = float
         except:
             pass
-        self.connect()
+        self._connect()
         if type(nome) == str:
             key = key
             idList = [[list(dado)[0], self.toDict(list(dado)[1:])[key]]
@@ -162,7 +175,7 @@ class DB():
             idList = [[list(dado)[0], self.toDict(list(dado)[1:])[key]]
                       for dado in list(self.cursor.execute("SELECT * FROM "+self.tableName))
                       if str(nome) == str(self.toDict(list(dado)[1:])[key])]
-        self.close()
+        self._close()
         try:
             return [x[0] for x in sorted(idList, key=lambda x: func(x[1]))]
         except ValueError as e:
@@ -180,21 +193,21 @@ class DB():
     def findGreaterThan(self, key, valor):
         assert type(valor) == int or type(
             valor) == float, "Entre com valores numéricos"
-        self.connect()
+        self._connect()
         idList = [[list(dado)[0], self.toDict(list(dado)[1:])[key]]
                   for dado in list(self.cursor.execute("SELECT * FROM "+self.tableName))
                   if float(valor) <= float(self.toDict(list(dado)[1:])[key])]
-        self.close()
+        self._close()
         return [x[0] for x in sorted(idList, key=lambda x: x[1])]
 
     def findLessThan(self, key, valor):
         assert type(valor) == int or type(
             valor) == float, "Entre com valores numéricos"
-        self.connect()
+        self._connect()
         idList = [[list(dado)[0], self.toDict(list(dado)[1:])[key]]
                   for dado in list(self.cursor.execute("SELECT * FROM "+self.tableName))
                   if float(valor) >= float(self.toDict(list(dado)[1:])[key])]
-        self.close()
+        self._close()
         return [x[0] for x in sorted(idList, key=lambda x: x[1])]
 
     def findDataBiggerThan(self, key, valor):
@@ -204,11 +217,11 @@ class DB():
         return sorted(self.getDataListByIdList(self.findLessThan(key, valor)), key=lambda x: x[key])
 
     def deleteData(self, id):
-        self.connect()
+        self._connect()
         id = str(id)
         self.cursor.execute(
             "DELETE FROM " + self.tableName + " WHERE ID = ?", (id,))
-        self.close()
+        self._close()
 
     def update(self, id, dado):
         """updates given id to new dict
@@ -218,16 +231,16 @@ class DB():
         d = self.getData(id)
         d.update(dado)
         d = self.toList(d)
-        self.connect()
+        self._connect()
         self.cursor.execute("UPDATE " + self.tableName + " SET " + " = ?,".join(self.rowLabels) + "= ? WHERE id= ?",
                             (d+[id]))
-        self.close()
+        self._close()
 
     def deleteTable(self):
         """Deletes the table"""
-        self.connect()
+        self._connect()
         self.cursor.execute("DROP TABLE IF EXISTS " + self.tableName)
-        self.close()
+        self._close()
 
     def deleteAll(self):
         """Deletes the db file"""

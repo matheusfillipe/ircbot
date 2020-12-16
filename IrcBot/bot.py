@@ -17,6 +17,7 @@ import socket
 import re
 import traceback
 import trio
+from copy import deepcopy
 from IrcBot import utils
 from IrcBot.utils import log, debug, logger
 from IrcBot.sqlitedb import DB
@@ -26,24 +27,21 @@ utils = utils
 BUFFSIZE = 2048
 
 class persistentData(object):
-    def __init__(self, filename):
-        """
-        :param filename: Filepath for the database
-        """
-        self.filename = filename
-        self.db = None
-        self.var_count = 0
-    
-    def newVar(self, data, name):
-        """New variable.
-        :param data: Default variable
-        :param name: str. unic identifier, eg a user nick or a channel name.
-        """
-        data_type = type(data)
-        if data_type == list:
-            self.db=DB(filename, name + self.var_count)
-        
+    def __init__(self, name, keys, blockDB=False):
+        """__init__.
 
+        :param name: Name of the table
+        :param keys: List of strings. Names for each column
+        :param blockDB: If true the database connection will be kept open. This can increase performance but you will have to shut down the bot in case you want to edit the database file manually. 
+        """
+        self.name = name
+        self.keys = keys
+        self.blockDB = blockDB
+
+    def initDB(self, filename):
+        self.db = DB(filename, self.name, self.keys, self.blockDB)
+
+        
 class Message(object):
     def __init__(self, bot, channel='', sender_nick='', message='', is_private=False):
         self.channel = channel.strip()
@@ -78,11 +76,13 @@ class IrcBot(object):
         self.channels = channels
         self.nickserv_auth = nickserv_auth
         self.use_sasl = use_sasl
+
         self.send_message_channel, self.receive_message_channel = trio.open_memory_channel(0)
 
         if not self.username:
             self.username = self.nick
 
+        self.data = persistentData(self.username + ".db")
         trio.run(self.connect)
 
     async def connect(self):
@@ -168,8 +168,9 @@ class IrcBot(object):
             await self.__send_message(message.message, channel)
 
     async def __message_task_loop(self):
-        async for msg in self.receive_message_channel:
-            await self.__send_data(msg)
+        async with self.receive_message_channel:
+            async for msg in self.receive_message_channel:
+                await self.__send_data(msg)
 
     async def __enqueue_message(self, message):
         await self.send_message_channel.send(message)
@@ -186,12 +187,13 @@ class IrcBot(object):
     async def run_bot_loop(self, s):
         """ Starts main bot loop waiting for messages.
         """
-        async for data in s:
-            data = data.decode('utf-8') 
-            debug("DECODED DATA FROM SERVER: \n", 40*"-", "\n", data, 40*"-", "\n")
-            async with trio.open_nursery() as nursery:
-                for msg in data.split("\r\n"):
-                    nursery.start_soon(self.data_handler, s, msg)
+        async with self.send_message_channel:
+            async for data in s:
+                data = data.decode('utf-8') 
+                debug("DECODED DATA FROM SERVER: \n", 40*"-", "\n", data, 40*"-", "\n")
+                async with trio.open_nursery() as nursery:
+                    for msg in data.split("\r\n"):
+                        nursery.start_soon(self.data_handler, s, msg)
 
     async def data_handler(self, s, data):
         nick = self.nick
@@ -242,6 +244,7 @@ class IrcBot(object):
                             if cmd in utils.regex_commands:
                                 if is_private and not utils.regex_commands_accept_pm[i]:
                                     continue
+                                trio.sleep(0)
                                 result = cmd[reg](m)
                             if result:
                                 await self.send_message(result, sender_nick if is_private else channel)
@@ -258,7 +261,16 @@ class IrcBot(object):
                                 if is_private and not utils.regex_commands_with_message_accept_pm[i]:
                                     continue
                                 debug("sending to", sender_nick)
-                                result = cmd[reg](m, Message(self, channel, sender_nick, msg, is_private))
+                                data = deepcopy(self.data)
+                                if utils.regex_commands_with_message_pass_data[i]:
+                                    trio.sleep(0)
+                                    result = cmd[reg](m, Message(self, channel, sender_nick, msg, is_private), self.data)
+                                    if data != self.data: #Changes were made, got to save
+                                        self.__enqueue_db_task(self.data)
+                                else:
+                                    trio.sleep(0)
+                                    result = cmd[reg](m, Message(self, channel, sender_nick, msg, is_private))
+
                             if result:
                                 await self.send_message(result, sender_nick if is_private else channel)
                                 matched = True
@@ -272,6 +284,7 @@ class IrcBot(object):
                     if word[-1] in [" ", "?", ",", ";", ":", "\\"]:
                         word = word[:-1]
                     if utils.validateUrl(word):
+                        trio.sleep(0)
                         result = utils.url_commands[-1](word)
                     if result:
                         self.send_message(result, channel)

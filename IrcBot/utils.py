@@ -21,10 +21,12 @@ def regex_cmd(filters, acccept_pms=True, **kwargs):
 
 regex_commands_with_message=[]
 regex_commands_with_message_accept_pm=[]
-def regex_cmd_with_messsage(filters, acccept_pms=True, **kwargs):
+regex_commands_with_message_pass_data=[]
+def regex_cmd_with_messsage(filters, acccept_pms=True, pass_data=False, **kwargs):
     """regex_cmd_with_sender. The function should take a match object from the re python library and a IrcBot.Message as a second parameter.
-    :param filters: 
+    :param filters: regex filter
     :param acccept_pms: bool. Should this command work with private messages?.
+    :param pass_data: If true function should accept an extra data argument.
     :param kwargs:
     """
     def wrap_cmd(func):
@@ -33,6 +35,7 @@ def regex_cmd_with_messsage(filters, acccept_pms=True, **kwargs):
             return func(*a, **bb)
         regex_commands_with_message.append({filters: func})
         regex_commands_with_message_accept_pm.append(acccept_pms)
+        regex_commands_with_message_pass_data.append(pass_data)
         return wrapped
     return wrap_cmd
 
