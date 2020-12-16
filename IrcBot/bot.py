@@ -259,15 +259,12 @@ class IrcBot(object):
                                 if is_private and not utils.regex_commands_with_message_accept_pm[i]:
                                     continue
                                 debug("sending to", sender_nick)
-                                data = deepcopy(self.data)
                                 if utils.regex_commands_with_message_pass_data[i]:
                                     trio.sleep(0)
-                                    result = cmd[reg](m, Message(self, channel, sender_nick, msg, is_private), self.data)
-                                    if data != self.data: #Changes were made, got to save
-                                        self.__enqueue_db_task(self.data)
+                                    result = cmd[reg](m, Message(channel, sender_nick, msg, is_private))
                                 else:
                                     trio.sleep(0)
-                                    result = cmd[reg](m, Message(self, channel, sender_nick, msg, is_private))
+                                    result = cmd[reg](m, Message(channel, sender_nick, msg, is_private))
 
                             if result:
                                 await self.send_message(result, sender_nick if is_private else channel)
