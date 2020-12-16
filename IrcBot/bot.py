@@ -43,13 +43,12 @@ class persistentData(object):
 
         
 class Message(object):
-    def __init__(self, bot, channel='', sender_nick='', message='', is_private=False):
+    def __init__(self, channel='', sender_nick='', message='', is_private=False):
         self.channel = channel.strip()
         self.sender_nick = sender_nick.strip()
         self.nick = sender_nick.strip()
         self.message = message.strip()
         self.is_private = is_private
-        self.bot = bot
 
 
 class IrcBot(object):
@@ -82,7 +81,6 @@ class IrcBot(object):
         if not self.username:
             self.username = self.nick
 
-        self.data = persistentData(self.username + ".db")
         trio.run(self.connect)
 
     async def connect(self):
