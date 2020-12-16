@@ -15,7 +15,7 @@ def requirements():
 requirements = requirements()
 
 setuptools.setup(
-    name="IrcBot", # Replace with your own username
+    name="re-ircbot", # Replace with your own username
     version="0.1",
     author="Matheus Fillipe",
     author_email="mattf@tilde.club",
