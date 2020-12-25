@@ -26,20 +26,75 @@ utils = utils
 
 BUFFSIZE = 2048
 
+class dbOperation(object):
+    ADD = 1
+    UPDATE = 0
+    REMOVE = -1
+    def __init__(self, data = {}, id = {}, op = UPDATE):
+        self.data = data
+        self.id = id
+        self.op = op
+
 class persistentData(object):
-    def __init__(self, name, keys, blockDB=False):
+    def __init__(self, filename, name, keys):
         """__init__.
 
         :param name: Name of the table
         :param keys: List of strings. Names for each column
         :param blockDB: If true the database connection will be kept open. This can increase performance but you will have to shut down the bot in case you want to edit the database file manually. 
+
+        You can have acess to the data list with self.data
         """
         self.name = name
         self.keys = keys
-        self.blockDB = blockDB
+        self.filename = filename
+        self.blockDB = False
+        self._queue = []
+        self.data = []
+        self.initDB(filename)
+        self.fetch()
 
     def initDB(self, filename):
         self.db = DB(filename, self.name, self.keys, self.blockDB)
+
+    def fetch(self):
+        """fetches the list of dicts/items with ids."""
+        self.data = self.db.getAllWithId()
+        return self.data
+
+    def push(self, items):
+        """push. Add new items to the table
+        :param items: list or single dict.
+        """
+        if type(items) == list:
+            for item in items:
+                self.push(item)
+        else:
+            self._queue.append(dbOperation(data=items, op=dbOperation.ADD))
+
+
+    def pop(self, id):
+        """Removes the row based on the id. (You can see with self.data)
+        :param id: int
+        """
+        assert type(id)==int, "id needs to be an int!"
+        self._queue.append(dbOperation(id=id, op=dbOperation.REMOVE))
+
+    def update(self, id, item):
+        """update.
+        :param id: id of item to update, change.
+        :param item: New item to replace with. This dict doesn't need to have all keys/columns, just the ones to be changed.
+        """
+        assert type(item) == dict , "item must be either list or dict"
+        assert type(id)==int, "id needs to be an int!"
+        self._queue.append(dbOperation(id=id, data=item, op=dbOperation.update))
+
+    def clear(self):
+        """Clear all the proposed modifications.
+        """
+        self._queue = []
+            
+
 
         
 class Message(object):
@@ -50,11 +105,20 @@ class Message(object):
         self.message = message.strip()
         self.is_private = is_private
 
+class ReplyIntent(object):
+    def __init__(self, message, func):
+        """__init__.
+        :param message: Message to send. You can use a message object if you want to change channel or make it a pm.
+        :param func: Function to call passing the received full message string that the user will reply with. This is useful for building dialogs. This function must either return None, a message to send back (str or IrcBot.Message) or another ReplyIntent. It must receive one argument. 
+        """
+        self.func = func
+        self.message = message
+
 
 class IrcBot(object):
     """IrcBot."""
 
-    def __init__(self, host, port=6665, nick="bot", channels=[], username=None, password='', nickserv_auth=False, use_sasl=False):
+    def __init__(self, host, port=6665, nick="bot", channels=[], username=None, password='', nickserv_auth=False, use_sasl=False, tables=[]):
         """Creates a bot instance joining to the channel if specified
 
         :param host: str. Server hostname. ex: "irc.freenode.org"
@@ -65,6 +129,7 @@ class IrcBot(object):
         :param password: str. Password for authentication.
         :param nickserv_auth: bool. Authenticate with 'PRIVMSG NickServ :IDENTIFY' . Should work in most servers.
         :param use_sasl: bool. Use sasl autentication. (Still not working. Don't use this!)
+        :param tables: List of persistentData to be registered on the bot.
         """
 
         self.nick = nick
@@ -75,8 +140,11 @@ class IrcBot(object):
         self.channels = channels
         self.nickserv_auth = nickserv_auth
         self.use_sasl = use_sasl
+        self.tables = tables
 
         self.send_message_channel, self.receive_message_channel = trio.open_memory_channel(0)
+        self.send_db_operation_channel, self.receive_db_operation_channel = trio.open_memory_channel(0)
+        self.replyIntents = {}
 
         if not self.username:
             self.username = self.nick
@@ -135,6 +203,7 @@ class IrcBot(object):
                 log("Listening for messages...")
                 nursery.start_soon(self.run_bot_loop, s)
                 nursery.start_soon(self.__message_task_loop)
+                nursery.start_soon(self.__db_operation_loop)
 
     async def join(self, channel):
         """joins a channel.
@@ -163,7 +232,7 @@ class IrcBot(object):
             for msg in message:
                 await self.__send_message(msg, channel)
         elif type(message) == Message:
-            await self.__send_message(message.message, channel)
+            await self.__send_message(message.message, message.channel)
 
     async def __message_task_loop(self):
         async with self.receive_message_channel:
@@ -173,25 +242,71 @@ class IrcBot(object):
     async def __enqueue_message(self, message):
         await self.send_message_channel.send(message)
 
-    async def __enqueue_db_task(self, message):
-        pass
-
     async def __send_data(self, data):
         s = self.s
         debug("Sending: ", data)
-        trio.sleep(0)
+        await trio.sleep(0)
         await s.send_all(data.encode())
 
+    async def check_tables(self):
+        for table in self.tables:
+            if table._queue:
+                table_copy = persistentData(table.filename, table.name, table.keys)
+                table_copy._queue = table._queue
+                await self.__enqueue_db_task(table_copy)
+            debug("qeue", table._queue)
+            table.clear()
+
+    def fetch_tables(self):
+        for table in self.tables:
+            table.fetch()
+
+    async def __enqueue_db_task(self, table):
+        debug("db task", str(table._queue))
+        await self.send_db_operation_channel.send(table)
+
+    async def __db_operation_loop(self):
+        async with self.receive_db_operation_channel:
+            async for table in self.receive_db_operation_channel:
+                for op in table._queue:
+                    if op.op == dbOperation.ADD:
+                        table.db.newData(op.data)
+                    if op.op == dbOperation.REMOVE:
+                        table.db.deleteData(op.id)
+                    if op.op == dbOperation.UPDATE:
+                        table.db.update(op.id, op.data)
+
+            
     async def run_bot_loop(self, s):
         """ Starts main bot loop waiting for messages.
         """
-        async with self.send_message_channel:
+        async with self.send_message_channel, self.send_db_operation_channel:
             async for data in s:
                 data = data.decode('utf-8') 
                 debug("DECODED DATA FROM SERVER: \n", 40*"-", "\n", data, 40*"-", "\n")
                 async with trio.open_nursery() as nursery:
+                    self.fetch_tables()
                     for msg in data.split("\r\n"):
                         nursery.start_soon(self.data_handler, s, msg)
+                    await self.check_tables()
+
+    async def process_result(self, result, channel, sender_nick, is_private):
+        if type(result) == ReplyIntent:
+            if result.message:
+                await self.send_message(result.message, sender_nick if is_private else channel)
+                if type(result.message) == Message:
+                    if result.message.channel not in self.replyIntents:
+                        self.replyIntents[result.message.channel] = {}
+                    debug("Saving message intent")
+                    self.replyIntents[result.message.channel][result.message.sender_nick] = result
+                    return
+
+            if channel not in self.replyIntents:
+                self.replyIntents[channel] = {}
+            self.replyIntents[channel][sender_nick] = result
+            debug("Saving basic intent")
+        else:
+            await self.send_message(result, sender_nick if is_private else channel)
 
     async def data_handler(self, s, data):
         nick = self.nick
@@ -225,14 +340,21 @@ class IrcBot(object):
                 return
 
             if len(data.split()) >= 3:
-                channel = data.split()[2]
-                sender_nick = data.split()[0].split("!~")[0][1:]
+                channel = data.split()[2].strip()
+                sender_nick = data.split()[0].split("!~")[0][1:].strip()
                 debug("sent by:", sender_nick)
                 splitter = "PRIVMSG "+channel+" :"
                 msg = splitter.join(data.split(splitter)[1:]).strip()
+                is_private = channel == self.nick
+                channel = channel if channel != self.nick else sender_nick
                 matched = False
 
-                is_private = channel == self.nick
+                if channel in self.replyIntents and sender_nick in self.replyIntents[channel]:
+                    result = self.replyIntents[channel][sender_nick].func(msg)
+                    del self.replyIntents[channel][sender_nick]
+                    await self.process_result(result, channel, sender_nick, is_private)
+                    return
+
                 for i, cmd in enumerate(utils.regex_commands): 
                     if matched:
                         break
@@ -242,10 +364,10 @@ class IrcBot(object):
                             if cmd in utils.regex_commands:
                                 if is_private and not utils.regex_commands_accept_pm[i]:
                                     continue
-                                trio.sleep(0)
+                                await trio.sleep(0)
                                 result = cmd[reg](m)
                             if result:
-                                await self.send_message(result, sender_nick if is_private else channel)
+                                await self.process_result(result, channel, sender_nick, is_private)
                                 matched = True
                                 continue
 
@@ -260,14 +382,14 @@ class IrcBot(object):
                                     continue
                                 debug("sending to", sender_nick)
                                 if utils.regex_commands_with_message_pass_data[i]:
-                                    trio.sleep(0)
+                                    await trio.sleep(0)
                                     result = cmd[reg](m, Message(channel, sender_nick, msg, is_private))
                                 else:
-                                    trio.sleep(0)
+                                    await trio.sleep(0)
                                     result = cmd[reg](m, Message(channel, sender_nick, msg, is_private))
 
                             if result:
-                                await self.send_message(result, sender_nick if is_private else channel)
+                                await self.process_result(result, channel, sender_nick, is_private)
                                 matched = True
                                 continue
 
@@ -279,10 +401,11 @@ class IrcBot(object):
                     if word[-1] in [" ", "?", ",", ";", ":", "\\"]:
                         word = word[:-1]
                     if utils.validateUrl(word):
-                        trio.sleep(0)
+                        await trio.sleep(0)
                         result = utils.url_commands[-1](word)
                     if result:
                         self.send_message(result, channel)
+
 
         except Exception as e:
             log("ERROR IN MAINLOOP: ", e)
@@ -493,6 +616,7 @@ class NotAsyncIrcBot(object):
                         result = utils.url_commands[-1](word)
                     if result:
                         self.send_message(result, channel)
+                
 
         except Exception as e:
             log("ERROR IN MAINLOOP: ", e)
