@@ -35,6 +35,33 @@ class dbOperation(object):
         self.id = id
         self.op = op
 
+class tempData(object):
+    def __init__(self):
+        """Initializes a temporary data object that can be retrieved from the same user and channel.
+        """
+        self.data = {}
+
+    def push(self, msg, data):
+        """Stores any data for the current nick and channel.
+        :param msg: Message object
+        :param data: Value to store (Any)
+        """
+        self.data[(msg.channel, msg.sender_nick)] = data
+
+    def pop(self, msg):
+        """Deletes data for user channel of the given message.
+        :param msg: Message object
+        """
+        del self.data[(msg.channel, msg.sender_nick)]
+
+    def get(self, msg):
+        """Returns data for user channel of the given message.
+        :param msg: Message object
+        """
+        return self.data[(msg.channel, msg.sender_nick)]
+
+
+
 class persistentData(object):
     def __init__(self, filename, name, keys):
         """__init__.
@@ -103,6 +130,7 @@ class Message(object):
         self.sender_nick = sender_nick.strip()
         self.nick = sender_nick.strip()
         self.message = message.strip()
+        self.txt = self.text = self.message
         self.is_private = is_private
 
 class ReplyIntent(object):
@@ -350,7 +378,7 @@ class IrcBot(object):
                 matched = False
 
                 if channel in self.replyIntents and sender_nick in self.replyIntents[channel]:
-                    result = self.replyIntents[channel][sender_nick].func(msg)
+                    result = self.replyIntents[channel][sender_nick].func(Message(channel, sender_nick, msg, is_private))
                     del self.replyIntents[channel][sender_nick]
                     await self.process_result(result, channel, sender_nick, is_private)
                     return

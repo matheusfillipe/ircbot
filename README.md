@@ -70,7 +70,7 @@ Still continuing the data permanency example, you can now modify the variable on
 
 ```
     @utils.regex_cmd_with_messsage("^!register (.*) (.*) (.*)$") # name, age, nickname
-    def handler(m, message):
+    def handler(omsg, message):
         people.push([m.group(1), m.group(2), m.group(3)])
         # or 
         #people.push({"name": m.group(1), "age": m.group(2),"nickname": m.group(3)})
@@ -78,7 +78,7 @@ Still continuing the data permanency example, you can now modify the variable on
 
     @utils.regex_cmd_with_messsage("^!register.*$") 
     def register(m, message):
-        return ReplyIntent("Enter your name, age and nickname", lambda msg: handler(msg, message))
+        return ReplyIntent("Enter your name, age and nickname", lambda msg: handler(original_message, msg))
 ```
 The regexes are matched in the other they are declared and there will be only one callback for each user input, which corresponds to the first defined callback that is matched. Like in this case the handler function will run directly if some user sends "!register name 23 nickname" but the register function won't run. If they were in swapped order then register would just always run. 
 
@@ -91,14 +91,15 @@ None, strings, a list of strings and Message can be used on the same places thro
 * str:  If you want to just send a string or fstring
 * [str1, str2, ...]: To send multiple messages.
 * Message: If you want to specify the channel, or send a private message.
+* ReplyIntent: If you want to set a callback for the next user message and
+    stablish a dialog.
 
 Everything is asynchronously handled so you might not want to user something
 besides the push, pop and update methods for the data permanency functions and
 also not try to send messages manually.
 
 Echo bot.
-`
-
+```
 def echo(msg):
     if msg == "stop":
         return
@@ -107,10 +108,7 @@ def echo(msg):
 @utils.regex_cmd_with_messsage(getcmd("^!include.*$", ACCEPT_PRIVATE_MESSAGES)
 def include(m, message):
     return ReplyIntent(Message(channel=message.sender_nick, sender_nick=message.sender_nick, message="Hello! echo mode activated"), echo)
-``
-
-`
-
+```
 ## TODO
 
 1. SASL AUTHENTICATION
