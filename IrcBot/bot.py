@@ -122,7 +122,6 @@ class persistentData(object):
         self._queue = []
             
 
-
         
 class Message(object):
     def __init__(self, channel='', sender_nick='', message='', is_private=False):
@@ -277,6 +276,7 @@ class IrcBot(object):
         await s.send_all(data.encode())
 
     async def check_tables(self):
+        debug("Cheking tables")
         for table in self.tables:
             if table._queue:
                 table_copy = persistentData(table.filename, table.name, table.keys)
@@ -286,6 +286,7 @@ class IrcBot(object):
             table.clear()
 
     def fetch_tables(self):
+        debug("Fetching tables")
         for table in self.tables:
             table.fetch()
 
@@ -316,7 +317,6 @@ class IrcBot(object):
                     self.fetch_tables()
                     for msg in data.split("\r\n"):
                         nursery.start_soon(self.data_handler, s, msg)
-                    await self.check_tables()
 
     async def process_result(self, result, channel, sender_nick, is_private):
         if type(result) == ReplyIntent:
@@ -336,10 +336,11 @@ class IrcBot(object):
         else:
             await self.send_message(result, sender_nick if is_private else channel)
 
+        await self.check_tables()
+
     async def data_handler(self, s, data):
         nick = self.nick
         host = self.host
-
         if len(data) <= 1:
             return
         debug("received -> ", data)
@@ -434,6 +435,7 @@ class IrcBot(object):
                     if result:
                         self.send_message(result, channel)
 
+            await self.check_tables()
 
         except Exception as e:
             log("ERROR IN MAINLOOP: ", e)
