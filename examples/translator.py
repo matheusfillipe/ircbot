@@ -2,6 +2,7 @@ from IrcBot.bot import IrcBot, utils
 from IrcBot.utils import log, debug
 import logging
 import os
+from copy import deepcopy
 
 ##################################################
 # SETTINGS                                       #
@@ -97,7 +98,7 @@ def auto_conf(m, message):
 
     if src == "off":
             auto_nicks.remove(message.nick)
-            for au in auto_translate:
+            for au in deepcopy(auto_translate):
                 if message.channel == au["channel"] and message.nick == au["nick"]:
                     auto_translate.remove(au)
             return f"{message.nick}: Cleaned all auto translations that were set"
@@ -110,7 +111,7 @@ def auto(m, message):
 
     if src == "off":
         debug("Turning off", dst)
-        for au in auto_translate:
+        for au in deepcopy(auto_translate):
             ct = 0
             if message.channel == au["channel"] and message.nick == au["nick"] and au["dst"] == dst:
                 auto_translate.remove(au)
