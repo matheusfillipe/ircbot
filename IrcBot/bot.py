@@ -431,9 +431,10 @@ class IrcBot(object):
                         word = word[:-1]
                     if utils.validateUrl(word):
                         await trio.sleep(0)
+                        debug("Checking url: " + str(word))
                         result = utils.url_commands[-1](word)
                     if result:
-                        self.send_message(result, channel)
+                        await self.send_message(result, channel)
 
             await self.check_tables()
 

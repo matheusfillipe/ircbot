@@ -25,7 +25,7 @@ CHANNELS = ["#bottest"]
 # and should output plain static text
 #FORMAT: regexp: text
 
-{
+INFO_CMDS = {
     r"^(.*) linux ": "Do you mean the best OS?",
     r"^(.*) vim ": "Do you mean the best Text editor???",
     "^(.*)!rules(.*)$" : ["1. Let's think about some rules?", "2. Yes I can send multiple messages"],
