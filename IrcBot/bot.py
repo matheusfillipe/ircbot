@@ -176,7 +176,9 @@ class IrcBot(object):
         if not self.username:
             self.username = self.nick
 
+    def run(self):
         trio.run(self.connect)
+
 
     async def connect(self):
         remote_ip = socket.gethostbyname(self.host)
