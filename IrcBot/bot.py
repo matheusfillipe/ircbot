@@ -222,13 +222,15 @@ class IrcBot(object):
             nick_cr = ('NICK ' + self.nick + '\r\n').encode()
             await s.send_all(nick_cr)
 
-            await self.ping_confirmation(s)
-            await trio.sleep(2)
-
             usernam_cr = (
                 'USER '+" ".join([self.username]*3)+' :' + self.nick + ' \r\n').encode()
             await s.send_all(usernam_cr)
 
+            ping_confirmed = False
+            with trio.fail_after(4):
+                await self.ping_confirmation(s)
+                ping_confirmed=True
+                await trio.sleep(2)
 
             if self.password:
                 log("IDENTIFYING")
@@ -237,6 +239,7 @@ class IrcBot(object):
                 await s.send_all(auth_cr)
 
 
+            await trio.sleep(2)
             if self.use_sasl:
                 import base64
                 await s.send_all(("AUTHENTICATE PLAIN").encode())
@@ -491,3 +494,61 @@ class IrcBot(object):
         self.__del__()
 
 
+import logging
+LEVEL = logging.DEBUG
+LOGFILE = None
+HOST = "irc.snoonet.org"
+PORT = 6697
+NICK = "substitute"
+CHANNEL = "#gnulag"
+PASSWORD = "asdf1234asdf"
+MAX_MSGS_TO_KEEP = 3
+
+def main():
+    utils.setLogging(LEVEL, LOGFILE)
+
+    class MaxSizeList(object):
+        def __init__(self, max_length):
+            self.max_length = max_length
+            self.ls = []
+        def append(self, value):
+            if len(self.ls) >= self.max_length:
+                self.ls.pop(0)
+            self.ls.append(value)
+        def __getitem__(self, key):
+            return self.ls[key]
+        def __iter__(self):
+            return self.ls.__iter__()
+        def __len__(self):
+            return self.ls.__len__()
+
+
+    last_msgs = {}
+        
+    @utils.regex_cmd_with_messsage(r'^s/([^/]+)/([^/]+)/?$')
+    def s(m, msg):
+        if not msg.nick in last_msgs:
+            return
+        if m[1] == m[2]:
+            return
+        for last_msg in last_msgs[msg.nick]:
+            if m[1] in last_msg:
+                newmsg = last_msg.replace(m[1], m[2])
+                last_msgs[msg.nick].append(newmsg)
+                return f"<{msg.nick.split('!')[0]}> {newmsg}"
+
+    @utils.regex_cmd_with_messsage(r'^s/.*$')
+    def failed_attempt(m, msg):
+        return
+
+    @utils.regex_cmd_with_messsage(r'^(.+)$')
+    def lm(m, msg):
+        if not msg.nick in last_msgs:
+            last_msgs[msg.nick] = MaxSizeList(MAX_MSGS_TO_KEEP)
+        last_msgs[msg.nick].append(msg.text)
+
+    bot = IrcBot(HOST, PORT, NICK, CHANNEL, password=PASSWORD, use_ssl=True)
+    bot.run()
+
+if __name__ == "__main__":
+    main()
