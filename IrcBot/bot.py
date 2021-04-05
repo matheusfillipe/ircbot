@@ -222,13 +222,13 @@ class IrcBot(object):
             nick_cr = ('NICK ' + self.nick + '\r\n').encode()
             await s.send_all(nick_cr)
 
+            await self.ping_confirmation(s)
+            await trio.sleep(2)
+
             usernam_cr = (
                 'USER '+" ".join([self.username]*3)+' :' + self.nick + ' \r\n').encode()
             await s.send_all(usernam_cr)
 
-            await self.ping_confirmation(s)
-
-            await trio.sleep(2)
 
             if self.password:
                 log("IDENTIFYING")
