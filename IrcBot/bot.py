@@ -145,7 +145,7 @@ class ReplyIntent(object):
 class IrcBot(object):
     """IrcBot."""
 
-    def __init__(self, host, port=6665, nick="bot", channels=[], username=None, password='', nickserv_auth=False, use_sasl=False, tables=[]):
+    def __init__(self, host, port=6665, nick="bot", channels=[], username=None, password='', server_password='', use_sasl=False, use_ssl=False, tables=[]):
         """Creates a bot instance joining to the channel if specified
 
         :param host: str. Server hostname. ex: "irc.freenode.org"
@@ -154,19 +154,20 @@ class IrcBot(object):
         :param channel: List of strings of channels to join or string for a single channel. You can leave this empty can call .join manually.
         :param username: str. Username for authentication.
         :param password: str. Password for authentication.
-        :param nickserv_auth: bool. Authenticate with 'PRIVMSG NickServ :IDENTIFY' . Should work in most servers.
+        :param server_password: str. Authenticate with the server.
         :param use_sasl: bool. Use sasl autentication. (Still not working. Don't use this!)
         :param tables: List of persistentData to be registered on the bot.
         """
 
         self.nick = nick
         self.password = password
+        self.server_password = server_password
         self.username = username
         self.host = host
         self.port = port
         self.channels = channels
-        self.nickserv_auth = nickserv_auth
         self.use_sasl = use_sasl
+        self.use_ssl = use_ssl
         self.tables = tables
 
         self.send_message_channel, self.receive_message_channel = trio.open_memory_channel(0)
@@ -178,30 +179,63 @@ class IrcBot(object):
 
     def run(self):
         trio.run(self.connect)
-
+    
+    async def ping_confirmation(self, s):
+        MAX = 10
+        c=0
+        log("AWAITING PING CONFIRMATION.....")
+        async for data in s:
+            data = data.decode('utf-8') 
+            for msg in data.split("\r\n"):
+                debug("RECV --------- " + msg)
+                if c>MAX:
+                    return
+                if "001 "+self.nick+ " :" in msg:
+                    return
+                if data.find("PING") != -1 and len(data.split(":")) >= 2:
+                    msg = str('PONG :' + data.split(":")[-1])
+                    debug("Registration pong: ", msg)
+                    await s.send_all(msg.encode())
+                    return
+                c+=1
 
     async def connect(self):
         remote_ip = socket.gethostbyname(self.host)
         log('ip of irc server is:', remote_ip)
-        s = await trio.open_tcp_stream(remote_ip, self.port)
+        if self.use_ssl:
+            log("Using SSL connection")
+            import ssl
+            ssl_context = ssl.SSLContext()
+            s = await trio.open_ssl_over_tcp_stream(remote_ip, self.port, https_compatible=True, ssl_context=ssl_context)
+        else:
+            s = await trio.open_tcp_stream(remote_ip, self.port)
         log('connected to: ', self.host, self.port)
 
         async with s:
             if self.use_sasl:
                 await s.send_all(("CAP REQ :sasl").encode())
 
-            nick_cr = ('nick ' + self.nick + '\r\n').encode()
+            if self.server_password :
+                pw_cr = ('PASS ' + self.server_password + '\r\n').encode()
+                await s.send_all(pw_cr)
+
+            nick_cr = ('NICK ' + self.nick + '\r\n').encode()
             await s.send_all(nick_cr)
-            pw_cr = ('PASS' + self.password + '\r\n').encode()
-            await s.send_all(pw_cr)
+
             usernam_cr = (
-                'USER '+" ".join([self.username]*3)+' :rainbow pie \r\n').encode()
+                'USER '+" ".join([self.username]*3)+' :' + self.nick + ' \r\n').encode()
             await s.send_all(usernam_cr)
 
-            if self.nickserv_auth:
+            await self.ping_confirmation(s)
+
+            await trio.sleep(2)
+
+            if self.password:
+                log("IDENTIFYING")
                 auth_cr = ("PRIVMSG NickServ :IDENTIFY " +
-                           nick + " "+password + ' \r\n').encode()
+                           self.password + '\r\n').encode()
                 await s.send_all(auth_cr)
+
 
             if self.use_sasl:
                 import base64
@@ -232,7 +266,8 @@ class IrcBot(object):
                 log("Listening for messages...")
                 nursery.start_soon(self.run_bot_loop, s)
                 nursery.start_soon(self.message_task_loop)
-                nursery.start_soon(self.db_operation_loop)
+                if self.tables:
+                    nursery.start_soon(self.db_operation_loop)
 
     async def join(self, channel):
         """joins a channel.
@@ -278,7 +313,7 @@ class IrcBot(object):
         await s.send_all(data.encode())
 
     async def check_tables(self):
-        debug("Cheking tables")
+        debug("Checking tables")
         for table in self.tables:
             if table._queue:
                 table_copy = persistentData(table.filename, table.name, table.keys)
@@ -338,21 +373,22 @@ class IrcBot(object):
         else:
             await self.send_message(result, sender_nick if is_private else channel)
 
-        await self.check_tables()
+        if self.tables:
+            await self.check_tables()
 
     async def data_handler(self, s, data):
         nick = self.nick
         host = self.host
         if len(data) <= 1:
             return
-        debug("received -> ", data)
+        debug("processing -> ", data)
         try:
             if data.find("PING") != -1 and len(data.split(":")) >= 3 and 'PING' in data.split(":")[2]:
                 msg = str('PONG ' + data.split(':')
                           [1].split("!~")[0] + '\r\n')
                 debug("ponging: ", msg)
-                # await s.send_all(msg.encode())
                 await self._enqueue_message(msg)
+
                 if data.find("PRIVMSG") != -1:
                     msg = str(f':{nick} PRIVMSG ' + data.split(':')
                               [1].split("!~")[0] + " :PONG " + data.split(" ")[-1] + '\r\n')
@@ -453,4 +489,5 @@ class IrcBot(object):
     def close(self):
         """Stops the bot and loop if running."""
         self.__del__()
+
 
