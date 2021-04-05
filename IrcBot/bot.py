@@ -26,14 +26,17 @@ utils = utils
 
 BUFFSIZE = 2048
 
+
 class dbOperation(object):
     ADD = 1
     UPDATE = 0
     REMOVE = -1
-    def __init__(self, data = {}, id = {}, op = UPDATE):
+
+    def __init__(self, data={}, id={}, op=UPDATE):
         self.data = data
         self.id = id
         self.op = op
+
 
 class tempData(object):
     def __init__(self):
@@ -59,7 +62,6 @@ class tempData(object):
         :param msg: Message object
         """
         return self.data[(msg.channel, msg.sender_nick)]
-
 
 
 class persistentData(object):
@@ -99,12 +101,11 @@ class persistentData(object):
         else:
             self._queue.append(dbOperation(data=items, op=dbOperation.ADD))
 
-
     def pop(self, id):
         """Removes the row based on the id. (You can see with self.data)
         :param id: int
         """
-        assert type(id)==int, "id needs to be an int!"
+        assert type(id) == int, "id needs to be an int!"
         self._queue.append(dbOperation(id=id, op=dbOperation.REMOVE))
 
     def update(self, id, item):
@@ -112,17 +113,17 @@ class persistentData(object):
         :param id: id of item to update, change.
         :param item: New item to replace with. This dict doesn't need to have all keys/columns, just the ones to be changed.
         """
-        assert type(item) == dict , "item must be either list or dict"
-        assert type(id)==int, "id needs to be an int!"
-        self._queue.append(dbOperation(id=id, data=item, op=dbOperation.update))
+        assert type(item) == dict, "item must be either list or dict"
+        assert type(id) == int, "id needs to be an int!"
+        self._queue.append(dbOperation(
+            id=id, data=item, op=dbOperation.update))
 
     def clear(self):
         """Clear all the proposed modifications.
         """
         self._queue = []
-            
 
-        
+
 class Message(object):
     def __init__(self, channel='', sender_nick='', message='', is_private=False):
         self.channel = channel.strip()
@@ -131,6 +132,7 @@ class Message(object):
         self.message = message.strip()
         self.txt = self.text = self.message
         self.is_private = is_private
+
 
 class ReplyIntent(object):
     def __init__(self, message, func):
@@ -170,8 +172,10 @@ class IrcBot(object):
         self.use_ssl = use_ssl
         self.tables = tables
 
-        self.send_message_channel, self.receive_message_channel = trio.open_memory_channel(0)
-        self.send_db_operation_channel, self.receive_db_operation_channel = trio.open_memory_channel(0)
+        self.send_message_channel, self.receive_message_channel = trio.open_memory_channel(
+            0)
+        self.send_db_operation_channel, self.receive_db_operation_channel = trio.open_memory_channel(
+            0)
         self.replyIntents = {}
 
         if not self.username:
@@ -179,25 +183,25 @@ class IrcBot(object):
 
     def run(self):
         trio.run(self.connect)
-    
+
     async def ping_confirmation(self, s):
         MAX = 10
-        c=0
+        c = 0
         log("AWAITING PING CONFIRMATION.....")
         async for data in s:
-            data = data.decode('utf-8') 
+            data = data.decode('utf-8')
             for msg in data.split("\r\n"):
                 debug("RECV --------- " + msg)
-                if c>MAX:
+                if c > MAX:
                     return
-                if "001 "+self.nick+ " :" in msg:
+                if "001 "+self.nick + " :" in msg:
                     return
                 if data.find("PING") != -1 and len(data.split(":")) >= 2:
                     msg = str('PONG :' + data.split(":")[-1])
                     debug("Registration pong: ", msg)
                     await s.send_all(msg.encode())
                     return
-                c+=1
+                c += 1
 
     async def connect(self):
         remote_ip = socket.gethostbyname(self.host)
@@ -215,7 +219,7 @@ class IrcBot(object):
             if self.use_sasl:
                 await s.send_all(("CAP REQ :sasl").encode())
 
-            if self.server_password :
+            if self.server_password:
                 pw_cr = ('PASS ' + self.server_password + '\r\n').encode()
                 await s.send_all(pw_cr)
 
@@ -229,7 +233,7 @@ class IrcBot(object):
             ping_confirmed = False
             with trio.fail_after(4):
                 await self.ping_confirmation(s)
-                ping_confirmed=True
+                ping_confirmed = True
                 await trio.sleep(2)
 
             if self.password:
@@ -237,7 +241,6 @@ class IrcBot(object):
                 auth_cr = ("PRIVMSG NickServ :IDENTIFY " +
                            self.password + '\r\n').encode()
                 await s.send_all(auth_cr)
-
 
             await trio.sleep(2)
             if self.use_sasl:
@@ -255,7 +258,6 @@ class IrcBot(object):
                 data = s.recv(4096).decode('utf-8')
                 log("Server SAYS: ", data)
                 await s.send_all(("CAP END").encode())
-
 
             self.s = s
             if type(self.channels) == list:
@@ -290,7 +292,7 @@ class IrcBot(object):
             for chan in channel:
                 await self._send_message(message, chan)
         else:
-           await self._send_message(message, channel)
+            await self._send_message(message, channel)
 
     async def _send_message(self, message, channel):
         if type(message) == str:
@@ -319,7 +321,8 @@ class IrcBot(object):
         debug("Checking tables")
         for table in self.tables:
             if table._queue:
-                table_copy = persistentData(table.filename, table.name, table.keys)
+                table_copy = persistentData(
+                    table.filename, table.name, table.keys)
                 table_copy._queue = table._queue
                 await self._enqueue_db_tsk(table_copy)
             debug("qeue", table._queue)
@@ -345,14 +348,14 @@ class IrcBot(object):
                     if op.op == dbOperation.UPDATE:
                         table.db.update(op.id, op.data)
 
-            
     async def run_bot_loop(self, s):
         """ Starts main bot loop waiting for messages.
         """
         async with self.send_message_channel, self.send_db_operation_channel:
             async for data in s:
-                data = data.decode('utf-8') 
-                debug("DECODED DATA FROM SERVER: \n", 40*"-", "\n", data, 40*"-", "\n")
+                data = data.decode('utf-8')
+                debug("DECODED DATA FROM SERVER: \n",
+                      40*"-", "\n", data, 40*"-", "\n")
                 async with trio.open_nursery() as nursery:
                     self.fetch_tables()
                     for msg in data.split("\r\n"):
@@ -420,16 +423,17 @@ class IrcBot(object):
                 matched = False
 
                 if channel in self.replyIntents and sender_nick in self.replyIntents[channel]:
-                    result = self.replyIntents[channel][sender_nick].func(Message(channel, sender_nick, msg, is_private))
+                    result = self.replyIntents[channel][sender_nick].func(
+                        Message(channel, sender_nick, msg, is_private))
                     del self.replyIntents[channel][sender_nick]
                     await self.process_result(result, channel, sender_nick, is_private)
                     return
 
-                for i, cmd in enumerate(utils.regex_commands): 
+                for i, cmd in enumerate(utils.regex_commands):
                     if matched:
                         break
                     for reg in cmd:
-                        m = re.match(reg, msg) #, flags=re.IGNORECASE)
+                        m = re.match(reg, msg)  # , flags=re.IGNORECASE)
                         if m:
                             if cmd in utils.regex_commands:
                                 if is_private and not utils.regex_commands_accept_pm[i]:
@@ -445,7 +449,7 @@ class IrcBot(object):
                     if matched:
                         break
                     for reg in cmd:
-                        m = re.match(reg, msg) #, flags=re.IGNORECASE)
+                        m = re.match(reg, msg)  # , flags=re.IGNORECASE)
                         if m:
                             if cmd in utils.regex_commands_with_message:
                                 if is_private and not utils.regex_commands_with_message_accept_pm[i]:
@@ -453,10 +457,12 @@ class IrcBot(object):
                                 debug("sending to", sender_nick)
                                 if utils.regex_commands_with_message_pass_data[i]:
                                     await trio.sleep(0)
-                                    result = cmd[reg](m, Message(channel, sender_nick, msg, is_private))
+                                    result = cmd[reg](m, Message(
+                                        channel, sender_nick, msg, is_private))
                                 else:
                                     await trio.sleep(0)
-                                    result = cmd[reg](m, Message(channel, sender_nick, msg, is_private))
+                                    result = cmd[reg](m, Message(
+                                        channel, sender_nick, msg, is_private))
 
                             if result:
                                 await self.process_result(result, channel, sender_nick, is_private)
@@ -492,4 +498,3 @@ class IrcBot(object):
     def close(self):
         """Stops the bot and loop if running."""
         self.__del__()
-
