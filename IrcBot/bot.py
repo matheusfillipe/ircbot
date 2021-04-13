@@ -59,6 +59,10 @@ class Color(object):
             self.text = "{}{}{}".format(self.esc, fg, text)
         self.str = self.text
 
+    @classmethod
+    def colors(cls):
+        return [k for k in Color.__dict__ if not (k.startswith('_') or k in ['esc', 'COLORS'])]
+
     def __str__(self):
         return self.str
 
