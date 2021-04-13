@@ -26,7 +26,7 @@ utils = utils
 BUFFSIZE = 2048
 
 
-class Color():
+class Color(str):
     """
     Colorcodes enum
     """
