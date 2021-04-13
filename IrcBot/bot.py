@@ -23,8 +23,44 @@ from IrcBot.utils import log, debug, logger
 from IrcBot.sqlitedb import DB
 
 utils = utils
-
 BUFFSIZE = 2048
+
+
+class Color():
+    """
+    Colorcodes enum
+    """
+    esc         = '\003'
+    white       = '00'
+    black       = '01'
+    navy        = '02'
+    green       = '03'
+    red         = '04'
+    maroon      = '05'
+    purple      = '06'
+    orange      = '07'
+    yellow      = '08'
+    light_green = '09'
+    teal        = '10'
+    cyan        = '11'
+    blue        = '12'
+    magenta     = '13'
+    gray        = '14'
+    light_gray  = '15'
+
+    COLORS = [
+        '00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15'
+    ]
+
+    def __init__(self, text, fg=white, bg=None):
+        if bg is not None:
+            self.text = "{}{},{}{}".format(self.esc, fg, bg, text)
+        else:
+            self.text = "{}{}{}".format(self.esc, fg, text)
+        self.str = self.text
+
+    def __str__(self):
+        return self.text
 
 
 class dbOperation(object):
@@ -147,7 +183,7 @@ class ReplyIntent(object):
 class IrcBot(object):
     """IrcBot."""
 
-    def __init__(self, host, port=6665, nick="bot", channels=[], username=None, password='', server_password='', use_sasl=False, use_ssl=False, tables=[]):
+    def __init__(self, host, port=6665, nick="bot", channels=[], username=None, password='', server_password='', use_sasl=False, use_ssl=False, delay=False, tables=[]):
         """Creates a bot instance joining to the channel if specified
 
         :param host: str. Server hostname. ex: "irc.freenode.org"
@@ -171,6 +207,7 @@ class IrcBot(object):
         self.use_sasl = use_sasl
         self.use_ssl = use_ssl
         self.tables = tables
+        self.delay=False
 
         self.send_message_channel, self.receive_message_channel = trio.open_memory_channel(
             0)
@@ -231,10 +268,9 @@ class IrcBot(object):
             await s.send_all(usernam_cr)
 
             ping_confirmed = False
-            with trio.fail_after(4):
+            with trio.fail_after(2):
                 await self.ping_confirmation(s)
                 ping_confirmed = True
-                await trio.sleep(2)
 
             if self.password:
                 log("IDENTIFYING")
@@ -242,13 +278,14 @@ class IrcBot(object):
                            self.password + '\r\n').encode()
                 await s.send_all(auth_cr)
 
-            await trio.sleep(2)
+            if self.delay:
+                await trio.sleep(2)
             if self.use_sasl:
                 import base64
                 await s.send_all(("AUTHENTICATE PLAIN").encode())
                 sep = "\x00"
                 b = base64.b64encode(
-                    (nick + sep+nick+sep+password).encode("utf8")).decode("utf8")
+                    (self.nick + sep+self.nick+sep+self.password).encode("utf8")).decode("utf8")
                 data = s.recv(4096).decode('utf-8')
                 log("Server SAYS: ", data)
                 await s.send_all(("AUTHENTICATE "+b).encode())
