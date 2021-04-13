@@ -26,7 +26,7 @@ utils = utils
 BUFFSIZE = 2048
 
 
-class Color(str):
+class Color(object):
     """
     Colorcodes enum
     """
@@ -60,7 +60,7 @@ class Color(str):
         self.str = self.text
 
     def __str__(self):
-        return self.text
+        return self.str
 
 
 class dbOperation(object):
@@ -268,9 +268,12 @@ class IrcBot(object):
             await s.send_all(usernam_cr)
 
             ping_confirmed = False
-            with trio.fail_after(2):
-                await self.ping_confirmation(s)
-                ping_confirmed = True
+            try:
+                with trio.fail_after(2):
+                    await self.ping_confirmation(s)
+                    ping_confirmed = True
+            except:
+                log("No ping confirmation")
 
             if self.password:
                 log("IDENTIFYING")
@@ -334,6 +337,8 @@ class IrcBot(object):
     async def _send_message(self, message, channel):
         if type(message) == str:
             await self._enqueue_message((str('PRIVMSG ' + channel) + " :" + message + ' \r\n'))
+        elif type(message) == Color:
+            await self._send_message(message.str, channel)
         elif type(message) == list:
             for msg in message:
                 await self._send_message(msg, channel)
