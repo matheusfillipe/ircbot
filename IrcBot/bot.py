@@ -187,7 +187,7 @@ class ReplyIntent(object):
 class IrcBot(object):
     """IrcBot."""
 
-    def __init__(self, host, port=6665, nick="bot", channels=[], username=None, password='', server_password='', use_sasl=False, use_ssl=False, delay=False, tables=[]):
+    def __init__(self, host, port=6665, nick="bot", channels=[], username=None, password='', server_password='', use_sasl=False, use_ssl=False, delay=False, accept_join_from=[], tables=[]):
         """Creates a bot instance joining to the channel if specified
 
         :param host: str. Server hostname. ex: "irc.freenode.org"
@@ -198,6 +198,8 @@ class IrcBot(object):
         :param password: str. Password for authentication.
         :param server_password: str. Authenticate with the server.
         :param use_sasl: bool. Use sasl autentication. (Still not working. Don't use this!)
+        :param delay: int. Delay after nickserv authentication
+        :param accept_join_from: str. Who to accept invite command from ([])
         :param tables: List of persistentData to be registered on the bot.
         """
 
@@ -211,7 +213,8 @@ class IrcBot(object):
         self.use_sasl = use_sasl
         self.use_ssl = use_ssl
         self.tables = tables
-        self.delay=False
+        self.delay = delay
+        self.accept_join_from = accept_join_from
 
         self.send_message_channel, self.receive_message_channel = trio.open_memory_channel(
             0)
@@ -286,7 +289,7 @@ class IrcBot(object):
                 await s.send_all(auth_cr)
 
             if self.delay:
-                await trio.sleep(2)
+                await trio.sleep(self.delay)
             if self.use_sasl:
                 import base64
                 await s.send_all(("AUTHENTICATE PLAIN").encode())
@@ -459,6 +462,12 @@ class IrcBot(object):
                 return
 
             if len(data.split()) >= 3:
+                match = re.match(r":(\S+)!\S* INVITE (\S+) (\S+)", data)
+                if match and match[2] == self.nick:
+                    log("Invited to "+match[3])
+                    if match[1] in self.accept_join_from:
+                        self.join(match[3])
+
                 channel = data.split()[2].strip()
                 sender_nick = data.split()[0].split("!~")[0][1:].strip()
                 debug("sent by:", sender_nick)
