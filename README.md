@@ -1,8 +1,8 @@
-# Simple IRC Bot Framework
+# Simple IRC Bot Library
 
 ## What is this?
 
-This is a simple irc bot framework that uses trio for async callback processing and allows you to
+This is a simple irc bot library that uses trio for async callback processing and allows you to
 use persistent data based on user's nick and channels. The callbacks for
 commands are defined by regular expressions. You might want to take a look on
 the examples folder.
@@ -112,6 +112,7 @@ def include(m, message):
 ## TODO
 
 1. SASL AUTHENTICATION
+2. Colorized input support
 
 
 

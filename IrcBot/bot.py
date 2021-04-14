@@ -466,7 +466,7 @@ class IrcBot(object):
                 if match and match[2] == self.nick:
                     log("Invited to "+match[3])
                     if match[1] in self.accept_join_from:
-                        self.join(match[3])
+                        await self.join(match[3])
 
                 channel = data.split()[2].strip()
                 sender_nick = data.split()[0].split("!~")[0][1:].strip()
