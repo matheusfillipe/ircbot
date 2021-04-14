@@ -53,13 +53,30 @@ remap = {
 BG = [Color.maroon, Color.gray]
 FG = [Color.white, Color.black]
 board = chess.Board()
+LABEL = [
+    "   A  B  C  D  E  F  G  H   ",
+    "     A   B   C   D   E   F   G   H  ",
+]
 
-@utils.regex_cmd_with_messsage(f"^{PREFIX}board$", ACCEPT_PRIVATE_MESSAGES)
-def print_board(args, message):
+PREF = {}
+TURN = False
+PLAYER = ["", ""]
+
+@utils.regex_cmd_with_messsage(f"^{PREFIX}(board|b) ?(\S)?$", ACCEPT_PRIVATE_MESSAGES)
+def print_board(args, message, notsave=False):
     global FG, BG, board
-    # You can also retunr a Color object or a list of colors
-    label = "     A   B   C   D   E   F   G   H  "
     lines = str(board).split('\n')
+    if args and not args[2] is None and type(args[2])==str and args[2].isdigit():
+        i = int(args[2])
+        if i >= len(LABEL):
+            return f"Choose a number less than {len(LABEL)}"
+        label = LABEL[i]
+        if not notsave:
+            PREF[message.nick] = i
+    elif message and message.nick in PREF:
+        label = LABEL[PREF[message.nick]]
+    else:
+        label = LABEL[0]
     R=[]
     bgi=1
     row=8
@@ -76,6 +93,7 @@ def print_board(args, message):
             colors.append(piece)
             bgi = not bgi
         bgi = not bgi
+        colors[-1].str = colors[-1].str[:-1]
         R.append(str(row) + " " + "".join([c.str for c in colors]) + " \003 " + str(row))
         row-=1
     R.append(label)
@@ -117,13 +135,14 @@ def hint(args, message):
 
 @utils.regex_cmd_with_messsage(f"^{PREFIX}undo$", ACCEPT_PRIVATE_MESSAGES)
 def undo(args, message):
-    global board
+    global board, TURN
+    TURN = not TURN
     board.pop()
     return print_board(None, None)
 
 @utils.regex_cmd_with_messsage(f"^{PREFIX}(move|m) ?(.+)?$", ACCEPT_PRIVATE_MESSAGES)
 def move(args, message):
-    global board
+    global board, TURN, PLAYER, PREF
     try:
         uci = chess.Move.from_uci(args[2])
     except:
@@ -138,6 +157,8 @@ def move(args, message):
         return f"({message.nick}) Invalid move! Use uic moves like e2e4, c8c4, etc..."
 
     board.push_uci(args[2])
+    if board.is_variant_draw():
+        return endGame("DRAW!")
     if board.is_stalemate():
         return endGame("STALEMATE!")
     if board.is_checkmate():
@@ -145,6 +166,10 @@ def move(args, message):
     if board.is_check():
         return ["CHECK...", print_board(None, None)]
 
+    PLAYER[TURN] = message.nick
+    TURN = not TURN
+    if PLAYER[TURN] in PREF:
+        return print_board(["", "", str(PREF[PLAYER[TURN]])], None, notsave=True)
     return print_board(None, None)
 
 @utils.regex_cmd_with_messsage(f"^{PREFIX}colors ?(.*)$", ACCEPT_PRIVATE_MESSAGES)
