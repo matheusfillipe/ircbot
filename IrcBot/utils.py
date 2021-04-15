@@ -52,6 +52,12 @@ def url_handler(**kwargs):
         return wrapped
     return wrap_cmd
 
+command_prefix = "!"
+command_max_arguments = 6
+_NonSpace = r'\S'
+command = lambda cmd, acccept_pms=True, pass_data=False, **kwargs: regex_cmd_with_messsage(f"^{command_prefix}{cmd}{f' ?({_NonSpace}*)?'*command_max_arguments}$", acccept_pms, pass_data, **kwargs)
+
+
 
 # LOGGING SETUP
 import logging

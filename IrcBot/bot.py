@@ -216,6 +216,8 @@ class IrcBot(object):
         self.delay = delay
         self.accept_join_from = accept_join_from
 
+        self.connected = False
+
         self.send_message_channel, self.receive_message_channel = trio.open_memory_channel(
             0)
         self.send_db_operation_channel, self.receive_db_operation_channel = trio.open_memory_channel(
@@ -225,8 +227,32 @@ class IrcBot(object):
         if not self.username:
             self.username = self.nick
 
+    def runWithCallback(self, async_callback):
+        """
+        starts the bot with a parallel callback. Useful if you want to use bot.send without user interaction.
+        param: async_callback: async function to be called.
+        """
+        trio.run(self.start_with_callback, async_callback)
+
+    async def start_with_callback(self, async_callback):
+        async with trio.open_nursery() as nursery:
+            nursery.start_soon(self.connect)
+            nursery.start_soon(self._wait_for_connect_and_cb, async_callback)
+
+    async def _wait_for_connect_and_cb(self, cb):
+        while not self.connect:
+            await trio.sleep(1)
+        await cb(self)
+
     def run(self):
+        "Simply starts the bot"
         trio.run(self.connect)
+
+    async def sleep(self, time):
+        """
+        Waits for time. Asynchronous wrapper for trip.sleep
+        """
+        await trio.sleep(time)     
 
     async def ping_confirmation(self, s):
         MAX = 10
@@ -314,6 +340,7 @@ class IrcBot(object):
                 await self.join(self.channels)
                 self.channels = [self.channels]
 
+            self.connected = True
             async with trio.open_nursery() as nursery:
                 log("Listening for messages...")
                 nursery.start_soon(self.run_bot_loop, s)
