@@ -54,8 +54,8 @@ PLAYER = ["", ""]
 def print_board(args, message, notsave=True):
     global FG, BG, board
     lines = str(board).split("\n")
-    if args and not args[2] is None and type(args[2]) == str and args[2].isdigit():
-        i = int(args[2])
+    if args and not args[1] is None and type(args[1]) == str and args[1].isdigit():
+        i = int(args[1])
         if i >= len(LABEL):
             return f"Choose a number less than {len(LABEL)}"
         label = LABEL[i]
