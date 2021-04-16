@@ -13,7 +13,7 @@
 #########################################################################
 
 
-import re
+import re, random
 import socket
 
 import trio
@@ -73,11 +73,18 @@ class Color(object):
         self.str = self.text
 
     @classmethod
+    def random(cls):
+        return random.choice(cls.COLORS)
+
+    @classmethod
     def colors(cls):
+        """
+        Returns the color names
+        """
         return [
             k
             for k in Color.__dict__
-            if not (k.startswith("_") or k in ["esc", "COLORS", "colors"])
+            if not (k.startswith("_") or k in ["esc", "COLORS", "colors", "getcolors"])
         ]
 
     def __str__(self):
@@ -253,6 +260,9 @@ class IrcBot(object):
         self.accept_join_from = accept_join_from
 
         self.connected = False
+
+        if utils.arg_commands_with_message:
+            utils.setCommands(utils.arg_commands_with_message)
 
         (
             self.send_message_channel,
@@ -579,7 +589,7 @@ class IrcBot(object):
                     await self.process_result(result, channel, sender_nick, is_private)
                     return
 
-                for i, cmd in enumerate(utils.regex_commands):
+                for i, cmd in enumerate(utils.regex_commands[::-1]):
                     if matched:
                         break
                     for reg in cmd:
@@ -597,7 +607,7 @@ class IrcBot(object):
                                 matched = True
                                 continue
 
-                for i, cmd in enumerate(utils.regex_commands_with_message):
+                for i, cmd in enumerate(utils.regex_commands_with_message[::-1]):
                     if matched:
                         break
                     for reg in cmd:

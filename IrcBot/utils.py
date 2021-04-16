@@ -90,7 +90,7 @@ command_prefix = "!"
 #TODO find a better way for endless arguments
 _command_max_arguments = 10
 _NonSpace = r"\S"
-command = (
+re_command = (
     lambda cmd, acccept_pms=True, pass_data=False, **kwargs: regex_cmd_with_messsage(
         f"^{command_prefix}{cmd}{f'(?: +({_NonSpace}+))?'*_command_max_arguments} *$",
         acccept_pms,
@@ -99,15 +99,39 @@ command = (
     )
 )
 
+arg_commands_with_message = {}
+def arg_command(command, help="", command_help="", acccept_pms=True, pass_data=False, **kwargs):
+    """
+    Wrapper for setCommands.
+    :param command: Command
+    :param acccept_pms: bool. Should this command work with private messages?.
+    param: simplify: Uses shortest prefixes for each command. If True the shortest differentiatable prefixes for the commands will work. Like if there is start and stop, !sta will call start and !sto will call stop. Instead of passing a function  directly you can pass in a dict like:
+    param: help: Message to display on help command.
+    param: command_help: Message to display on help command with this command's name as argument.
+    """
+    def wrap_cmd(func):
+        @wraps(func)
+        def wrapped(*a, **bb):
+            return func(*a, **bb)
 
+        arg_commands_with_message[command] = {"function": func, "acccept_pms": acccept_pms, "pass_data": pass_data, "help": help, "command_help": command_help}
+        return wrapped
+    return wrap_cmd
+
+def setPrefix(prefix):
+    global command_prefix
+    command_prefix = prefix
+
+help_msg = ""
+commands_help = {}
 def setCommands(command_dict: dict, simplify=True, prefix="!"):
     """Defines commands for the bot from existing functions
     param: command_dict: Takes a dictionary of "command names": function's to call creating the commands for each of them.
-    param: simplify: If True the shortest differentiable abbreviations for the commands will work. Like if there is start and stop, !sta will call start and !sto will call stop. Instead of passing a function  directly you can pass in a dict like:
+    param: simplify: Uses shortest prefixes for each command. If True the shortest differentiatable prefixes for the commands will work. Like if there is start and stop, !sta will call start and !sto will call stop. Instead of passing a function  directly you can pass in a dict like:
     {"function": cb, "acccept_pms": True, "pass_data": True, "help": "This command starts the bot", "command_help": "Detailed help for this command in particular"}
     if needed. The help parameter if passed will define the 'help' command.
     """
-    global command_prefix
+    global command_prefix, help_msg, commands_help
     command_prefix = prefix
 
     _commands = findShortestPrefix(command_dict.keys())
@@ -117,15 +141,13 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
         re.escape(pref) + opt_open + opt_open.join([re.escape(c) for c in org[len(pref):]]) + opt_close*len(org[len(pref):])
         for org, pref in zip(command_dict.keys(), _commands)
     ]
-    help_msg = ""
-    commands_help = {}
     for cmd, reg in zip(command_dict.keys(), regexps):
         cb = command_dict[cmd]
         expression = reg if simplify else cmd
         logging.debug("DEFINING %s", expression)
 
         if isinstance(cb, dict):
-            command(
+            re_command(
                 expression,
                 acccept_pms=True if not "acccept_pms" in cb else cb["acccept_pms"],
                 pass_data=False if not "pass_data" in cb else cb["pass_data"],
@@ -138,7 +160,7 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
                 commands_help[cmd] = cb['help']
 
         elif isinstance(cb, collections.abc.Callable):
-            command(expression)(cb)
+            re_command(expression)(cb)
         else:
             logging.error(
                 "You passed a wrong data type on setCommands for command: %s", cmd
@@ -146,7 +168,7 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
             sys.exit(1)
 
     if help_msg or commands_help:
-        @command("help")
+        @re_command("help")
         def help_menu(args, message):
             if args[1] in commands_help:
                 return commands_help[args[1]]
