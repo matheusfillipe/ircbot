@@ -77,7 +77,7 @@ class Color(object):
         return [
             k
             for k in Color.__dict__
-            if not (k.startswith("_") or k in ["esc", "COLORS"])
+            if not (k.startswith("_") or k in ["esc", "COLORS", "colors"])
         ]
 
     def __str__(self):

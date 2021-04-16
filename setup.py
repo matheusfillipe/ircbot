@@ -16,7 +16,7 @@ requirements = requirements()
 
 setuptools.setup(
     name="re-ircbot", # Replace with your own username
-    version="1.1.0",
+    version="1.1.1",
     author="Matheus Fillipe",
     author_email="mattf@tilde.club",
     description="A simple async irc bot framework with regex command definitions and data permanency",

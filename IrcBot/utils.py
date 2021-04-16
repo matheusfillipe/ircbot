@@ -1,67 +1,162 @@
+import collections
+import logging
+import re
+import sys
 from functools import wraps
 
+import validators
+
+from .shortestPrefix import findShortestPrefix
+
+logger = None
 
 # COMMAND DECORATORS
-regex_commands=[]
-regex_commands_accept_pm=[]
+regex_commands = []
+regex_commands_accept_pm = []
+
+
 def regex_cmd(filters, acccept_pms=True, **kwargs):
-    """regex_cmd. The function should take a match object from the re python library. Will not receive private messages, use regex_commands_with_message instead.
+    """regex_cmd. The function should take a match object from the re python
+    library. Will not receive private messages, use regex_commands_with_message
+    instead.
+
     :param filters: Regex expression
     :param acccept_pms: bool. Should this command work with private messages?.
     :param kwargs:
     """
+
     def wrap_cmd(func):
         @wraps(func)
-        def wrapped (*a, **bb):
+        def wrapped(*a, **bb):
             return func(*a, **bb)
+
         regex_commands.append({filters: func})
         regex_commands_accept_pm.append(acccept_pms)
         return wrapped
+
     return wrap_cmd
 
-regex_commands_with_message=[]
-regex_commands_with_message_accept_pm=[]
-regex_commands_with_message_pass_data=[]
+
+regex_commands_with_message = []
+regex_commands_with_message_accept_pm = []
+regex_commands_with_message_pass_data = []
+
+
 def regex_cmd_with_messsage(filters, acccept_pms=True, pass_data=False, **kwargs):
-    """regex_cmd_with_sender. The function should take a match object from the re python library and a IrcBot.Message as a second parameter.
+    """regex_cmd_with_sender. The function should take a match object from the
+    re python library and a IrcBot.Message as a second parameter.
+
     :param filters: regex filter
     :param acccept_pms: bool. Should this command work with private messages?.
     :param pass_data: If true function should accept an extra data argument.
     :param kwargs:
     """
+    logging.debug("Creating regex with message: %s", filters)
+
     def wrap_cmd(func):
         @wraps(func)
-        def wrapped (*a, **bb):
+        def wrapped(*a, **bb):
             return func(*a, **bb)
+
         regex_commands_with_message.append({filters: func})
         regex_commands_with_message_accept_pm.append(acccept_pms)
         regex_commands_with_message_pass_data.append(pass_data)
         return wrapped
+
     return wrap_cmd
 
-url_commands=[]
+
+url_commands = []
+
+
 def url_handler(**kwargs):
-    """url_handler. The function should take a string that is the matched url
+    """url_handler. The function should take a string that is the matched url.
+
     :param kwargs:
     """
+
     def wrap_cmd(func):
         @wraps(func)
-        def wrapped (*a, **bb):
+        def wrapped(*a, **bb):
             return func(*a, **bb)
+
         url_commands.append(func)
         return wrapped
+
     return wrap_cmd
 
+
 command_prefix = "!"
-command_max_arguments = 6
-_NonSpace = r'\S'
-command = lambda cmd, acccept_pms=True, pass_data=False, **kwargs: regex_cmd_with_messsage(f"^{command_prefix}{cmd}{f' ?({_NonSpace}*)?'*command_max_arguments}$", acccept_pms, pass_data, **kwargs)
+#TODO find a better way for endless arguments
+_command_max_arguments = 10
+_NonSpace = r"\S"
+command = (
+    lambda cmd, acccept_pms=True, pass_data=False, **kwargs: regex_cmd_with_messsage(
+        f"^{command_prefix}{cmd}{f'(?: +({_NonSpace}+))?'*_command_max_arguments} *$",
+        acccept_pms,
+        pass_data,
+        **kwargs,
+    )
+)
+
+
+def setCommands(command_dict: dict, simplify=True, prefix="!"):
+    """Defines commands for the bot from existing functions
+    param: command_dict: Takes a dictionary of "command names": function's to call creating the commands for each of them.
+    param: simplify: If True the shortest differentiable abbreviations for the commands will work. Like if there is start and stop, !sta will call start and !sto will call stop. Instead of passing a function  directly you can pass in a dict like:
+    {"function": cb, "acccept_pms": True, "pass_data": True, "help": "This command starts the bot", "command_help": "Detailed help for this command in particular"}
+    if needed. The help parameter if passed will define the 'help' command.
+    """
+    global command_prefix
+    command_prefix = prefix
+
+    _commands = findShortestPrefix(command_dict.keys())
+    opt_open='(?:'
+    opt_close=r')?'
+    regexps = [
+        re.escape(pref) + opt_open + opt_open.join([re.escape(c) for c in org[len(pref):]]) + opt_close*len(org[len(pref):])
+        for org, pref in zip(command_dict.keys(), _commands)
+    ]
+    help_msg = ""
+    commands_help = {}
+    for cmd, reg in zip(command_dict.keys(), regexps):
+        cb = command_dict[cmd]
+        expression = reg if simplify else cmd
+        logging.debug("DEFINING %s", expression)
+
+        if isinstance(cb, dict):
+            command(
+                expression,
+                acccept_pms=True if not "acccept_pms" in cb else cb["acccept_pms"],
+                pass_data=False if not "pass_data" in cb else cb["pass_data"],
+            )(cb['function'])
+            help_msg += f"{command_prefix}{cmd}: {cb['help']},   " if 'help' in cb else ""
+
+            if 'command_help' in cb and cb['command_help']:
+                commands_help[cmd] = cb['command_help']
+            elif 'help' in cb and cb['help']:
+                commands_help[cmd] = cb['help']
+
+        elif isinstance(cb, collections.abc.Callable):
+            command(expression)(cb)
+        else:
+            logging.error(
+                "You passed a wrong data type on setCommands for command: %s", cmd
+            )
+            sys.exit(1)
+
+    if help_msg or commands_help:
+        @command("help")
+        def help_menu(args, message):
+            if args[1] in commands_help:
+                return commands_help[args[1]]
+            if help_msg:
+                return help_msg
 
 
 
 # LOGGING SETUP
-import logging
-logger=None
+
 
 def setLogging(level, logfile=None):
     """Sets the loggins level of the logging module.
@@ -70,27 +165,36 @@ def setLogging(level, logfile=None):
     :param logfile: str. Path for file or empty for none.
     """
     global logger
-    logging.basicConfig(level=level, filename=logfile, format='%(asctime)s::%(levelname)s -> %(message)s', datefmt='%I:%M:%S %p')
+    logging.basicConfig(
+        level=level,
+        filename=logfile,
+        format="%(asctime)s::%(levelname)s -> %(message)s",
+        datefmt="%I:%M:%S %p",
+    )
     logger = logging.getLogger()
     logger.setLevel(level)
 
+
 setLogging(logging.DEBUG)
 
+
 def log(*args, level=logging.INFO):
-    msg=" ".join([str(a) for a in list(args)])
-    if type(level)==int:
+    msg = " ".join([str(a) for a in list(args)])
+    if type(level) == int:
         logger.log(level, msg)
-    elif type(level)==str:
+    elif type(level) == str:
         getattr(logger, level)(msg)
 
+
 def debug(*args, level=logging.DEBUG):
-    msg=" ".join([str(a) for a in list(args)])
+    msg = " ".join([str(a) for a in list(args)])
     logger.log(level, msg)
+
 
 def warning(*args, level=logging.WARNING):
-    msg=" ".join([str(a) for a in list(args)])
+    msg = " ".join([str(a) for a in list(args)])
     logger.log(level, msg)
 
-import validators
+
 def validateUrl(url):
     return validators.url(url)
