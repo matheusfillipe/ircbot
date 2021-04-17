@@ -30,6 +30,11 @@ async def send(bot: IrcBot, args, message): # If a handler is async, its first a
     utils.log("sending")
     await bot.send_message(Message(channel=args[0], message=" ".join(args[2:])))
 
+@utils.arg_command("list", "Lists users on the chat")
+async def list_u(bot: IrcBot, args, message):
+    names = bot.channel_names[message.channel]
+    return f"HELLO {', '.join(names)}"
+
 # Handles user quit or exit chat
 @utils.custom_handler(['part', 'quit'])
 def onQuit(nick, channel="", text=""):
