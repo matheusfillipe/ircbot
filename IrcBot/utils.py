@@ -1,3 +1,5 @@
+#TODO make a class instead of this globals crap 
+
 import collections
 import logging
 import re
@@ -67,8 +69,6 @@ def regex_cmd_with_messsage(filters, acccept_pms=True, pass_data=False, **kwargs
 
 
 url_commands = []
-
-
 def url_handler(**kwargs):
     """url_handler. The function should take a string that is the matched url.
 
@@ -85,9 +85,39 @@ def url_handler(**kwargs):
 
     return wrap_cmd
 
+custom_handlers = {}
+def custom_handler(action, **kwargs):
+    """custom_handler. Add handlers for other user actions like join, quit, part..
+    :param action: str or list of strings with one or more of the possible actions
+        Possible actions and function necessary arguments are:
+        type             kwargs
+        'privmsg' -> {'nick', 'channel', 'text'}
+        'ping' -> {'ping'}
+        'names' -> {'channel', 'names'}
+        'channel' -> {'channel', 'channeldescription'}
+        'join' -> {'nick', 'channel'}
+        'quit' -> {'nick', 'text'}
+        'part' -> {'nick', 'channel'}
+
+    """
+
+    def wrap_cmd(func):
+        @wraps(func)
+        def wrapped(*a, **bb):
+            return func(*a, **bb)
+
+        if isinstance(action, str):
+            custom_handlers[action] = func
+        if isinstance(action, list):
+            for a in action:
+                custom_handlers[a] = func
+        return wrapped
+
+    return wrap_cmd
+
+
 
 command_prefix = "!"
-# TODO find a better way for endless arguments
 _command_max_arguments = 10
 _NonSpace = r"\S"
 re_command = (
@@ -239,6 +269,14 @@ def setPrefix(prefix):
     global command_prefix
     command_prefix = prefix
 
+def setMaxArguments(n):
+    """setMaxArguments.
+    :param n: number of arguments for callbacks in arg_command decorator
+    """
+    global command_max_arguments
+    command_max_arguments = n
+
+
 
 # LOGGING SETUP
 
@@ -281,9 +319,8 @@ def warning(*args, level=logging.WARNING):
     logger.log(level, msg)
 
 
+
 # Extras
-
-
 def validateUrl(url):
     return validators.url(url)
 

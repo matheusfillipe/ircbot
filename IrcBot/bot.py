@@ -227,7 +227,7 @@ class IrcBot(object):
     def __init__(
         self,
         host,
-        port=6665,
+        port=6667,
         nick="bot",
         channels=[],
         username=None,
@@ -260,7 +260,7 @@ class IrcBot(object):
         'names' -> {'channel', 'names'}
         'channel' -> {'channel', 'channeldescription'}
         'join' -> {'nick', 'channel'}
-        'quit' -> {'nick', 'channel'}
+        'quit' -> {'nick', 'text'}
         'part' -> {'nick', 'channel'}
         """
 
@@ -276,7 +276,8 @@ class IrcBot(object):
         self.tables = tables
         self.delay = delay
         self.accept_join_from = accept_join_from
-        self.custom_handlers = custom_handlers
+        self.custom_handlers = utils.custom_handlers
+        self.custom_handlers.update(custom_handlers)
 
         self.connected = False
         self.server_channels = {}
@@ -604,7 +605,7 @@ class IrcBot(object):
                 "nick": g[1],
                 "channel": g[2],
             },
-            r"^:(.+)!.* PART (\S+)\s*$": lambda g: {
+            r"^:(.+)!.* PART (\S+) :.*\s*$": lambda g: {
                 "type": "part",
                 "nick": g[1],
                 "channel": g[2],
@@ -647,11 +648,24 @@ class IrcBot(object):
                 self.channel_names[message['channel']] = message['names']
                 return
 
+            if message['type'] == 'join':
+                if not message['channel'] in self.channel_names:
+                    self.channel_names[message['channel']] = []
+                if not message['nick'] in self.channel_names[message['channel']]:
+                    self.channel_names[message['channel']].append(message['nick'])
+                return
+
             if message['type'] == 'part':
                 if not message['channel'] in self.channel_names:
-                    self.channel_names = []
+                    self.channel_names[message['channel']] = []
                 if message['nick'] in self.channel_names[message['channel']]:
-                    self.channel_names.remove(message['nick'])
+                    self.channel_names[message['channel']].remove(message['nick'])
+                return
+
+            if message['type'] == 'quit':
+                for chan in self.channel_names:
+                    if message['nick'] in self.channel_names[chan]:
+                        self.channel_names[chan].remove(message['nick'])
                 return
 
             if message['type'] == 'channel':
@@ -663,6 +677,7 @@ class IrcBot(object):
             return
         debug("processing -> ", data)
         try:
+            #TODO use IRC_P instead of all this crap
             if (
                 data.find("PING") != -1
                 and len(data.split(":")) >= 3
@@ -686,7 +701,7 @@ class IrcBot(object):
                 log("PONG sent \n")
                 return
 
-            elif data.strip().startswith("PING"):
+            if message and message['type'] == 'ping':
                 msg = str("PONG " + host + "\r\n")
                 debug("ponging: ", msg)
                 # await s.send_all(msg.encode())
@@ -701,6 +716,7 @@ class IrcBot(object):
                     if match[1] in self.accept_join_from:
                         await self.join(match[3])
 
+
                 channel = data.split()[2].strip()
                 sender_nick = data.split()[0].split("!~")[0][1:].strip()
                 debug("sent by:", sender_nick)
@@ -709,6 +725,10 @@ class IrcBot(object):
                 is_private = channel == self.nick
                 channel = channel if channel != self.nick else sender_nick
                 matched = False
+
+                # Eliminate colors
+                msg = re.sub(r"\003\d\d(?:,\d\d)?", "", msg)
+                debug(f"PARSED MESSAGE: {msg}")
 
                 if (
                     channel in self.replyIntents

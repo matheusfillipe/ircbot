@@ -9,7 +9,7 @@ the examples folder.
 
 ## How to install 
 
-`pip install re-ircbot`
+`pip3 install re-ircbot`
 
 Then take one of the examples and start modifying!
 
@@ -173,12 +173,21 @@ escaped by re.escape.
 Q. Can I use async functions on my callbacks?
 Yes, you can use any of the decorators with async functions as well
 
+Q. What happens if i send colored messages?
+Currently they will be simply treated as normal text. This bot does not care
+about user input colors but it can still send colored messages.
+
+Q. Why my async callback doesn't work? (or how does it even work)
+Combared to non async callback functions, if you try to use an async callback
+like in one of util's wrappers, you will need to pass an extra argument in the
+first position that is 'bot', an IrcBot object which represents the current
+bot. With this you can use IrcBot's methods within a callback function like for
+a command or custom_handler.
+
+Q. How can I add actions for user, join, part etc.
+Take a look at the utils.custom_handler decorator.
 
 
 ## TODO
 
 1. SASL AUTHENTICATION
-2. Colored input support
-
-
-
