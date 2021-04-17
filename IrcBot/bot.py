@@ -13,8 +13,11 @@
 #########################################################################
 
 
-import re, random, inspect
+import inspect
+import random
+import re
 import socket
+from copy import copy
 
 import trio
 
@@ -78,9 +81,7 @@ class Color(object):
 
     @classmethod
     def colors(cls):
-        """
-        Returns the color names
-        """
+        """Returns the color names."""
         return [
             k
             for k in Color.__dict__
@@ -194,7 +195,7 @@ class persistentData(object):
 
 class Message(object):
     def __init__(self, channel="", sender_nick="", message="", is_private=False):
-        """Message
+        """Message.
 
         :param channel: Channel from/to which the message is sent or user/nick if private
         :param sender_nick: Whoever's nick the message came from. Only for received messages. Aliases for this are nick.
@@ -237,6 +238,7 @@ class IrcBot(object):
         delay=False,
         accept_join_from=[],
         tables=[],
+        custom_handlers={}
     ):
         """Creates a bot instance joining to the channel if specified.
 
@@ -251,6 +253,15 @@ class IrcBot(object):
         :param delay: int. Delay after nickserv authentication
         :param accept_join_from: str. Who to accept invite command from ([])
         :param tables: List of persistentData to be registered on the bot.
+        :param custom_handlers:{type: function, ...} Dict with function values to be called to handle custom server messages. Possible types (keys) are:
+        type             kwargs
+        'privmsg' -> {'nick', 'channel', 'text'}
+        'ping' -> {'ping'}
+        'names' -> {'channel', 'names'}
+        'channel' -> {'channel', 'channeldescription'}
+        'join' -> {'nick', 'channel'}
+        'quit' -> {'nick', 'channel'}
+        'part' -> {'nick', 'channel'}
         """
 
         self.nick = nick
@@ -265,11 +276,16 @@ class IrcBot(object):
         self.tables = tables
         self.delay = delay
         self.accept_join_from = accept_join_from
+        self.custom_handlers = custom_handlers
 
         self.connected = False
+        self.server_channels = {}
+        self.channel_names = {}
 
         if utils.arg_commands_with_message:
-            utils.setCommands(utils.arg_commands_with_message, prefix=utils.command_prefix)
+            utils.setCommands(
+                utils.arg_commands_with_message, prefix=utils.command_prefix
+            )
 
         (
             self.send_message_channel,
@@ -298,7 +314,7 @@ class IrcBot(object):
             nursery.start_soon(self._wait_for_connect_and_cb, async_callback)
 
     async def _wait_for_connect_and_cb(self, cb):
-        while not self.connect:
+        while not self.connected:
             await trio.sleep(1)
         await cb(self)
 
@@ -422,6 +438,25 @@ class IrcBot(object):
         log("Joining", channel)
         await self.s.send_all(("JOIN " + channel + " \r\n").encode())  # chanel
 
+    async def list_channels(self):
+        """list_channels of the irc server.
+
+        They will be available as a list of strings under:
+        bot.server_channels
+        """
+        await self._send_data("LIST")
+        await self.sleep(1)
+        return self.server_channels
+
+    async def list_names(self, channel):
+        """Lists users nicks in channel. Also check bot.channel_names.
+
+        :param channel:str channel name
+        """
+        await self._send_data(f"NAMES {channel}")
+        await self.sleep(1)
+        return self.channel_names
+
     async def send_message(self, message, channel=None):
         """Sends a text message.
 
@@ -430,7 +465,7 @@ class IrcBot(object):
         """
         if channel is None:
             channel = self.channels
-        if type(channel) == list:
+        if type(channel) == list and type(message) != Message:
             for chan in channel:
                 await self._send_message(message, chan)
         else:
@@ -534,6 +569,96 @@ class IrcBot(object):
     async def data_handler(self, s, data):
         nick = self.nick
         host = self.host
+
+        IRC_P = {
+            r"^:(.*)!.*PRIVMSG (\S+) :(.*)$": lambda g: {
+                "type": "privmsg",
+                "nick": g.group(1),
+                "channel": g.group(2),
+                "text": g.group(3),
+            },
+            r"^\s*PING \s*"
+            + self.nick
+            + r"\s*$": lambda g: {"type": "ping", "ping": self.nick},
+            r"^:\S* 353 "
+            + self.nick
+            + r" = (\S+) :(.*)\s*$": lambda g: {
+                "type": "names",
+                "channel": g.group(1),
+                "names": g.group(2).split(),
+            },
+            r"^:\S* 322 "
+            + self.nick
+            + r" (\S+) (\d+) :(.+)\s*$": lambda g: {
+                "type": "channel",
+                "channel": g.group(1),
+                "chandescription": g.group(3),
+            },
+            r"^:(.+)!.* QUIT :(.*)\s*$": lambda g: {
+                "type": "quit",
+                "nick": g[1],
+                "text": g[2],
+            },
+            r"^:(.+)!.* JOIN (\S+)\s*$": lambda g: {
+                "type": "join",
+                "nick": g[1],
+                "channel": g[2],
+            },
+            r"^:(.+)!.* PART (\S+)\s*$": lambda g: {
+                "type": "part",
+                "nick": g[1],
+                "channel": g[2],
+            },
+            r"^:(.+) 433 (\S*) (\S*) :(.*)\s*$": lambda g: {
+                "type": "nickinuse",
+                "reply": g,
+            },
+            r"^:"
+            + self.nick
+            + r"!.* QUIT (.*)\s*$": lambda g: {
+                "type": "selfquit",
+                "reply": f"*{g[1]}: You have quit*",
+            },
+            r"^:"
+            + self.nick
+            + r"!.* NICK (\S+)\s*$": lambda g: {
+                "type": "nickchange",
+                "nickchange": g[1],
+                "nick": g[1],
+            },
+        }
+
+        message = None
+        for pattern in IRC_P:
+            g = re.match(pattern, data)
+            if g:
+                message = IRC_P[g.re.pattern](g)
+                break
+
+        if message:
+            if message['type'] in self.custom_handlers:
+                m_copy = copy(message)
+                m_copy.pop('type')
+                result = await self._call_cb(self.custom_handlers[message['type']], **m_copy)
+                if result:
+                    await self.send_message(result)
+
+            if message['type'] == 'names':
+                self.channel_names[message['channel']] = message['names']
+                return
+
+            if message['type'] == 'part':
+                if not message['channel'] in self.channel_names:
+                    self.channel_names = []
+                if message['nick'] in self.channel_names[message['channel']]:
+                    self.channel_names.remove(message['nick'])
+                return
+
+            if message['type'] == 'channel':
+                self.server_channels[message['channel']] = message['chandescription']
+                return
+
+
         if len(data) <= 1:
             return
         debug("processing -> ", data)
@@ -591,7 +716,7 @@ class IrcBot(object):
                 ):
                     result = await self._call_cb(
                         self.replyIntents[channel][sender_nick].func,
-                        Message(channel, sender_nick, msg, is_private)
+                        Message(channel, sender_nick, msg, is_private),
                     )
                     del self.replyIntents[channel][sender_nick]
                     await self.process_result(result, channel, sender_nick, is_private)
@@ -632,13 +757,15 @@ class IrcBot(object):
                                 debug("sending to", sender_nick)
                                 if utils.regex_commands_with_message_pass_data[i]:
                                     await trio.sleep(0)
-                                    result = await self._call_cb(cmd[reg],
+                                    result = await self._call_cb(
+                                        cmd[reg],
                                         m,
                                         Message(channel, sender_nick, msg, is_private),
                                     )
                                 else:
                                     await trio.sleep(0)
-                                    result = await self._call_cb(cmd[reg],
+                                    result = await self._call_cb(
+                                        cmd[reg],
                                         m,
                                         Message(channel, sender_nick, msg, is_private),
                                     )
@@ -672,7 +799,7 @@ class IrcBot(object):
 
     async def _call_cb(self, cb, *args, **kwargs):
         if inspect.iscoroutinefunction(cb):
-            return await cb(*args, **kwargs)
+            return await cb(self, *args, **kwargs)
         return cb(*args, **kwargs)
 
     def __del__(self):
