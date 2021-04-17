@@ -57,4 +57,4 @@ def findShortestPrefix(words):
     while any([isinstance(elm, list) for elm in R]):
         R = list(itertools.chain(*R))
 
-    return R
+    return {w:c for w,c in zip(words, R)}

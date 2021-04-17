@@ -87,7 +87,7 @@ def url_handler(**kwargs):
 
 
 command_prefix = "!"
-#TODO find a better way for endless arguments
+# TODO find a better way for endless arguments
 _command_max_arguments = 10
 _NonSpace = r"\S"
 re_command = (
@@ -100,30 +100,60 @@ re_command = (
 )
 
 arg_commands_with_message = {}
-def arg_command(command, help="", command_help="", acccept_pms=True, pass_data=False, **kwargs):
-    """
-    Wrapper for setCommands.
+
+
+def arg_command(
+    command,
+    help="",
+    command_help="",
+    acccept_pms=True,
+    pass_data=False,
+    simplify=True,
+    **kwargs,
+):
+    """Wrapper for setCommands.
+
     :param command: Command
     :param acccept_pms: bool. Should this command work with private messages?.
     param: simplify: Uses shortest prefixes for each command. If True the shortest differentiatable prefixes for the commands will work. Like if there is start and stop, !sta will call start and !sto will call stop. Instead of passing a function  directly you can pass in a dict like:
     param: help: Message to display on help command.
     param: command_help: Message to display on help command with this command's name as argument.
     """
+
     def wrap_cmd(func):
         @wraps(func)
         def wrapped(*a, **bb):
             return func(*a, **bb)
 
-        arg_commands_with_message[command] = {"function": func, "acccept_pms": acccept_pms, "pass_data": pass_data, "help": help, "command_help": command_help}
+        arg_commands_with_message[command] = {
+            "function": func,
+            "acccept_pms": acccept_pms,
+            "pass_data": pass_data,
+            "help": help,
+            "command_help": command_help,
+            "simplify": simplify,
+        }
         return wrapped
+
     return wrap_cmd
 
-def setPrefix(prefix):
-    global command_prefix
-    command_prefix = prefix
 
-help_msg = ""
+help_msg = {}
 commands_help = {}
+help_menu_separator = " --- "
+
+
+def _reg_word(org, pref):
+    opt_open = r"(?:"
+    opt_close = r")?"
+    return (
+        re.escape(pref)
+        + opt_open * (len([re.escape(c) for c in org[len(pref) :]]) > 0)
+        + opt_open.join([re.escape(c) for c in org[len(pref) :]])
+        + opt_close * len(org[len(pref) :])
+    )
+
+
 def setCommands(command_dict: dict, simplify=True, prefix="!"):
     """Defines commands for the bot from existing functions
     param: command_dict: Takes a dictionary of "command names": function's to call creating the commands for each of them.
@@ -134,30 +164,54 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
     global command_prefix, help_msg, commands_help
     command_prefix = prefix
 
-    _commands = findShortestPrefix(command_dict.keys())
-    opt_open='(?:'
-    opt_close=r')?'
+    if "help" in command_dict:
+        logging.error("You should not redefine 'help'")
+
+    def not_regex(c):
+        if len(c) < 2:
+            return True
+        if isinstance(command_dict[c], dict) and "simplify" not in command_dict[c]:
+            return not simplify
+        if isinstance(command_dict[c], dict) and "simplify" in command_dict[c]:
+            return not command_dict[c]["simplify"]
+        return False
+
+    _commands = findShortestPrefix([c for c in command_dict.keys() if not not_regex(c)])
+    min_commands = []
+    exclude_list = [c for c in command_dict.keys() if not_regex(c)]
+    for cmd in command_dict:
+        if cmd in exclude_list:
+            min_commands.append(cmd)
+        else:
+            min_commands.append(_commands[cmd])
+
     regexps = [
-        re.escape(pref) + opt_open + opt_open.join([re.escape(c) for c in org[len(pref):]]) + opt_close*len(org[len(pref):])
-        for org, pref in zip(command_dict.keys(), _commands)
+        _reg_word(org, pref) if not not_regex(org) else re.escape(org)
+        for org, pref in zip(command_dict.keys(), min_commands)
     ]
+
     for cmd, reg in zip(command_dict.keys(), regexps):
         cb = command_dict[cmd]
-        expression = reg if simplify else cmd
+        # give preference if simplify comes in a dict
+        simp = simplify and not not_regex(cmd)
+        expression = reg if simp else cmd
         logging.debug("DEFINING %s", expression)
+        logging.debug("simplify? %s", simp)
 
         if isinstance(cb, dict):
             re_command(
                 expression,
                 acccept_pms=True if not "acccept_pms" in cb else cb["acccept_pms"],
                 pass_data=False if not "pass_data" in cb else cb["pass_data"],
-            )(cb['function'])
-            help_msg += f"{command_prefix}{cmd}: {cb['help']},   " if 'help' in cb else ""
+            )(cb["function"])
+            help_msg[cmd] = (
+                f"{command_prefix}{cmd}: {cb['help']}" if "help" in cb else ""
+            )
 
-            if 'command_help' in cb and cb['command_help']:
-                commands_help[cmd] = cb['command_help']
-            elif 'help' in cb and cb['help']:
-                commands_help[cmd] = cb['help']
+            if "command_help" in cb and cb["command_help"]:
+                commands_help[cmd] = cb["command_help"]
+            elif "help" in cb and cb["help"]:
+                commands_help[cmd] = cb["help"]
 
         elif isinstance(cb, collections.abc.Callable):
             re_command(expression)(cb)
@@ -168,13 +222,22 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
             sys.exit(1)
 
     if help_msg or commands_help:
-        @re_command("help")
+        _commands = findShortestPrefix(
+            [c for c in command_dict.keys() if not not_regex(c)] + ["help"]
+        )
+
         def help_menu(args, message):
             if args[1] in commands_help:
                 return commands_help[args[1]]
             if help_msg:
-                return help_msg
+                return help_menu_separator.join(list(help_msg.values()))
 
+        re_command(_reg_word("help", _commands["help"]))(help_menu)
+
+
+def setPrefix(prefix):
+    global command_prefix
+    command_prefix = prefix
 
 
 # LOGGING SETUP
@@ -218,5 +281,12 @@ def warning(*args, level=logging.WARNING):
     logger.log(level, msg)
 
 
+# Extras
+
+
 def validateUrl(url):
     return validators.url(url)
+
+
+def m2list(args):
+    return [args[i] for i in range(1, _command_max_arguments) if args[i]]

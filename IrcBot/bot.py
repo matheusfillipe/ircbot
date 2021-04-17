@@ -13,7 +13,7 @@
 #########################################################################
 
 
-import re, random
+import re, random, inspect
 import socket
 
 import trio
@@ -194,6 +194,13 @@ class persistentData(object):
 
 class Message(object):
     def __init__(self, channel="", sender_nick="", message="", is_private=False):
+        """Message
+
+        :param channel: Channel from/to which the message is sent or user/nick if private
+        :param sender_nick: Whoever's nick the message came from. Only for received messages. Aliases for this are nick.
+        :param message:str text of the message. Aliases: str, text, txt. For outgoing messages you can also set this to a Color object.
+        :param is_private: If True the message came from a user
+        """
         self.channel = channel.strip()
         self.sender_nick = sender_nick.strip()
         self.nick = sender_nick.strip()
@@ -262,7 +269,7 @@ class IrcBot(object):
         self.connected = False
 
         if utils.arg_commands_with_message:
-            utils.setCommands(utils.arg_commands_with_message)
+            utils.setCommands(utils.arg_commands_with_message, prefix=utils.command_prefix)
 
         (
             self.send_message_channel,
@@ -582,7 +589,8 @@ class IrcBot(object):
                     channel in self.replyIntents
                     and sender_nick in self.replyIntents[channel]
                 ):
-                    result = self.replyIntents[channel][sender_nick].func(
+                    result = await self._call_cb(
+                        self.replyIntents[channel][sender_nick].func,
                         Message(channel, sender_nick, msg, is_private)
                     )
                     del self.replyIntents[channel][sender_nick]
@@ -599,7 +607,7 @@ class IrcBot(object):
                                 if is_private and not utils.regex_commands_accept_pm[i]:
                                     continue
                                 await trio.sleep(0)
-                                result = cmd[reg](m)
+                                result = await self._call_cb(cmd[reg], m)
                             if result:
                                 await self.process_result(
                                     result, channel, sender_nick, is_private
@@ -624,13 +632,13 @@ class IrcBot(object):
                                 debug("sending to", sender_nick)
                                 if utils.regex_commands_with_message_pass_data[i]:
                                     await trio.sleep(0)
-                                    result = cmd[reg](
+                                    result = await self._call_cb(cmd[reg],
                                         m,
                                         Message(channel, sender_nick, msg, is_private),
                                     )
                                 else:
                                     await trio.sleep(0)
-                                    result = cmd[reg](
+                                    result = await self._call_cb(cmd[reg],
                                         m,
                                         Message(channel, sender_nick, msg, is_private),
                                     )
@@ -652,7 +660,7 @@ class IrcBot(object):
                     if utils.validateUrl(word):
                         await trio.sleep(0)
                         debug("Checking url: " + str(word))
-                        result = utils.url_commands[-1](word)
+                        result = await self._call_cb(utils.url_commands[-1], word)
                     if result:
                         await self.send_message(result, channel)
 
@@ -661,6 +669,11 @@ class IrcBot(object):
         except Exception as e:
             log("ERROR IN MAINLOOP: ", e)
             logger.exception(e)
+
+    async def _call_cb(self, cb, *args, **kwargs):
+        if inspect.iscoroutinefunction(cb):
+            return await cb(*args, **kwargs)
+        return cb(*args, **kwargs)
 
     def __del__(self):
         try:
