@@ -188,6 +188,11 @@ Q. How can I add actions for user, join, part etc.
 Take a look at the utils.custom_handler decorator.
 
 
-## TODO
+## ROADMAP
+
+For version 2.0:
 
 1. SASL AUTHENTICATION
+2. Handle weird characteres on input (Colors, fonts, underlines, glyphs etc)
+3. Convert utils to an actual class that can be used as a context
+
