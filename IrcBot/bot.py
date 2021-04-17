@@ -531,13 +531,13 @@ class IrcBot(object):
 
     async def run_bot_loop(self, s):
         """Starts main bot loop waiting for messages."""
-        async with self.send_message_channel, self.send_db_operation_channel:
-            async for data in s:
-                data = data.decode("utf-8")
-                debug(
-                    "DECODED DATA FROM SERVER: \n", 40 * "-", "\n", data, 40 * "-", "\n"
-                )
-                async with trio.open_nursery() as nursery:
+        async with trio.open_nursery() as nursery:
+            async with self.send_message_channel, self.send_db_operation_channel:
+                async for data in s:
+                    data = data.decode("utf-8")
+                    debug(
+                        "DECODED DATA FROM SERVER: \n", 40 * "-", "\n", data, 40 * "-", "\n"
+                    )
                     self.fetch_tables()
                     for msg in data.split("\r\n"):
                         nursery.start_soon(self.data_handler, s, msg)
