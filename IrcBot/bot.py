@@ -26,6 +26,7 @@ from IrcBot.sqlitedb import DB
 from IrcBot.utils import debug, log, logger
 
 BUFFSIZE = 2048
+MAX_MESSAGE_LEN = 410
 
 
 class Color(object):
@@ -461,7 +462,7 @@ class IrcBot(object):
         return self.channel_names
 
     async def send_message(self, message, channel=None):
-        """Sends a text message.
+        """Sends a text message. The message will be enqueued and sent whenever the messaging loop arrives on it.
 
         :param message: Can be a str, a list of str or a IrcBot.Message object.
         :param channel: Can be a str or a list of str. By default it is all channels the bot constructor receives. Instead of the channel name you can pass in a user nickname to send a private message.
@@ -476,6 +477,8 @@ class IrcBot(object):
 
     async def _send_message(self, message, channel):
         if type(message) == str:
+            message = message.replace("\n", "    ")
+            message = message.replace("\r", "")
             await self._enqueue_message(
                 (str("PRIVMSG " + channel) + " :" + message + " \r\n")
             )
