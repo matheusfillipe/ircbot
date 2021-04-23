@@ -107,7 +107,7 @@ remap = {
     ".": "♟︎",
 }
 
-engine = chess.engine.SimpleEngine.popen_uci("/usr/bin/stockfish")
+engine = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
 
 
 def cpuPlay(board: chess.Board):
