@@ -57,4 +57,15 @@ def findShortestPrefix(words):
     while any([isinstance(elm, list) for elm in R]):
         R = list(itertools.chain(*R))
 
-    return {w:c for w,c in zip(words, R)}
+    # DIRT FIX HERE
+    reordered = {}
+    for r in R:
+        for w in words:
+            if w.startswith(r):
+                reordered[w] = r
+                break
+        words.remove(w)
+    return reordered
+
+if __name__ == "__main__":
+    print(findShortestPrefix(['board', 'move', 'colors', 'undo', 'hint', 'score', 'label', 'start', 'accept', 'help']))

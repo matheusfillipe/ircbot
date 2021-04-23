@@ -17,7 +17,7 @@ import inspect
 import random
 import re
 import socket
-from copy import copy
+from copy import copy, deepcopy
 
 import trio
 
@@ -85,7 +85,7 @@ class Color(object):
         return [
             k
             for k in Color.__dict__
-            if not (k.startswith("_") or k in ["esc", "COLORS", "colors", "getcolors"])
+            if not (k.startswith("_") or k in ["esc", "COLORS", "colors", "getcolors", "random"])
         ]
 
     def __str__(self):
@@ -284,8 +284,10 @@ class IrcBot(object):
         self.channel_names = {}
 
         if utils.arg_commands_with_message:
+            new_commands = deepcopy(utils._defined_command_dict)
+            new_commands.update(utils.arg_commands_with_message)
             utils.setCommands(
-                utils.arg_commands_with_message, prefix=utils.command_prefix
+                new_commands, prefix=utils.command_prefix
             )
 
         (

@@ -183,7 +183,7 @@ def _reg_word(org, pref):
         + opt_close * len(org[len(pref) :])
     )
 
-
+_defined_command_dict = {}
 def setCommands(command_dict: dict, simplify=True, prefix="!"):
     """Defines commands for the bot from existing functions
     param: command_dict: Takes a dictionary of "command names": function's to call creating the commands for each of them.
@@ -251,6 +251,7 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
             )
             sys.exit(1)
 
+    _defined_command_dict = command_dict
     if help_msg or commands_help:
         _commands = findShortestPrefix(
             [c for c in command_dict.keys() if not not_regex(c)] + ["help"]

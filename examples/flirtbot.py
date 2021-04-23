@@ -78,7 +78,7 @@ class MSGS:
             CMDS.find.replace(" (.*)",""): "Use search queries like: !find f g 3-30 genova. The order of the parameters doesn't matter",
             CMDS.show.replace(" (.*)",""): "Pass in a nick and find info",
             }
-    
+   
 
 # Useful if connecting to freenode from a blacklisted ip that will require SASL
 USE_SASL = False
@@ -111,8 +111,7 @@ def include(m):
     hlp = m.group(1)
     if hlp in MSGS.help:
         return MSGS.help[hlp]
-    else:
-        return "Not a valid command, use one of: " + ", ".join([k for k in MSGS.help])
+    return "Not a valid command, use one of: " + ", ".join([k for k in MSGS.help])
 
 # Registration
 def finalizeInclude(msg):
