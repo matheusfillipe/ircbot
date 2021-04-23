@@ -17,6 +17,7 @@ from datetime import datetime
 import chess
 import chess.engine
 
+from IrcBot.bot import MAX_MESSAGE_LEN
 from IrcBot.bot import Color, IrcBot, Message, persistentData, utils
 from IrcBot.utils import debug, log
 
@@ -33,6 +34,7 @@ PASSWORD = ""
 CHANNELS = ["#bots"]  # , "#lobby",]
 PREFIX = ";"
 STOCKFISH = "/usr/bin/stockfish"
+TIME_TO_THINK = .05
 EXPIRE_INVITE_IN = 60  # secods
 DEFAULT_PREF = {"fg":[Color.white, Color.black], "bg":[Color.maroon, Color.gray], "label":"   A  B  C  D  E  F  G  H   "}
 
@@ -110,7 +112,7 @@ engine = chess.engine.SimpleEngine.popen_uci("/usr/bin/stockfish")
 
 def cpuPlay(board: chess.Board):
     global engine
-    result = engine.play(board, chess.engine.Limit(time=0.1))
+    result = engine.play(board, chess.engine.Limit(time=TIME_TO_THINK))
     board.push(result.move)
     return result.move
 
@@ -642,7 +644,11 @@ def invites(args, message):
 def history(args, message):
     game = botState.get_selected_game(message.nick, message.channel)
     if game:
-        return f"<{message.nick}> {', '.join([str(m) for m in game.history])}"
+        max_hist = 50
+        chunks = [game.history[i:i+max_hist] for i in range(0, len(game.history), max_hist)]
+        if len(chunks) == 0:
+            chunks = ['']
+        return [f"<{message.nick}> {', '.join([str(m) for m in hist])}" for hist in chunks]
     return f"<{message.nick}> You are not on any game"
 
 @utils.arg_command("games", "Current games", "Displays your current games.")
@@ -673,6 +679,8 @@ async def onQuit(bot, nick, channel=None, text=""):
 
     if channel is None: #quit
         games = botState.get_games(nick)
+        if not games:
+            return
         for chan in botState.games[nick]:
             for game in games:
                 if game in botState.games[nick][chan]['games']:
