@@ -25,7 +25,7 @@ from IrcBot.utils import debug, log
 ##################################################
 
 LOGFILE = None
-LEVEL = logging.DEBUG
+LEVEL = logging.INFO
 HOST = "irc.dot.org.es"
 PORT = 6667
 NICK = "chessbot"
@@ -163,6 +163,9 @@ class Game:
         self.player = not self.player
         self.history.append(uic)
 
+    def other(self, nick):
+        return self.p1 if nick == self.p2 else self.p2
+
     def utf8_board(self, nick):
         self.loadprefs()
         R = []
@@ -276,7 +279,7 @@ class BotState:
         return new_game
 
     def has_any_game(self, nick, channel):
-        return nick in self.games and channel in self.games[nick]
+        return nick in self.games and channel in self.games[nick] and len(self.games[nick][channel]['games']) > 0
 
     def has_game_with(self, nick, against_nick, channel):
         if not self.has_any_game(nick, channel):
@@ -395,13 +398,14 @@ def getMoves(uic, board):
     return r_moves
 
 
-def move(args, message):
+async def move(bot, args, message):
     try:
         uci = chess.Move.from_uci(args[1])
     except:
         uci = None
 
     game: Game = botState.get_selected_game(message.nick, message.channel)
+    chan_names = bot.channel_names[message.channel]
     if game is None:
         return f"<{message.nick}> You don't have any game selected"
     if game.nicks[game.player] != message.nick:
@@ -411,38 +415,41 @@ def move(args, message):
         if args[1] and len(args[1]) == 2 and re.match(r"^[a-h][1-8]$", args[1]):
             p_moves = getMoves(args[1], board)
             if len(p_moves) == 0:
-                return f"({message.nick}) There are no possible moves for {args[1]}"
+                return f"<{message.nick}> There are no possible moves for {args[1]}"
             return (
-                f"({message.nick}) possible moves for {args[1].lower()} are: "
+                f"<{message.nick}> possible moves for {args[1].lower()} are: "
                 + ", ".join(p_moves)
             )
-        return f"({message.nick}) Invalid move! Use uic moves like e2e4, c8c4, a7a8q, etc..."
+        return f"<{message.nick}> Invalid move! Use uic moves like e2e4, c8c4, a7a8q, etc..."
 
     game.move(args[1])
 
-    def endGame(msg):
-        textboard = game.utf8_board(game.nicks[game.player])
-        botState.end_game(message.nick, game.nicks[game.player], message.channel)
-        return [msg] + textboard + [f"{message.nick} wins"]
+    def endGame(msg, nick):
+        boards = game.utf8_board(game.p1) + game.utf8_board(game.p2)
+        botState.end_game(nick, game.nicks[game.player], message.channel)
+        return [msg] + boards + [f"{nick} wins"]
 
-    def checkBoard():
+    def checkBoard(nick=None):
         if board.is_game_over():
+            nick = nick if not nick is None else message.nick
             against_nick = game.nicks[game.player]
             if board.is_variant_draw():
                 increment_data(game.p1, "draws")
                 increment_data(game.p2, "draws")
-                return endGame("DRAW!")
+                return endGame("DRAW!", nick)
             if board.is_stalemate():
-                increment_data(message.nick, "stalemates")
+                increment_data(nick, "stalemates")
                 increment_data(against_nick, "losses")
-                return endGame("STALEMATE!")
+                return endGame("STALEMATE!", nick)
             if board.is_checkmate():
-                increment_data(message.nick, "checkmates")
+                increment_data(nick, "checkmates")
                 increment_data(against_nick, "losses")
-                return endGame("CHECKMATE!")
-            increment_data(message.nick, "checkmates")
+                return endGame("CHECKMATE!", nick)
+            increment_data(nick, "checkmates")
             increment_data(against_nick, "losses")
-            return ["END...", game.utf8_board(game.nicks[game.player])]
+            boards = game.utf8_board(game.p1) + game.utf8_board(game.p2)
+            botState.end_game(nick, against_nick, message.channel)
+            return ["END..."] + boards
 
     end = checkBoard()
     if end:
@@ -458,13 +465,17 @@ def move(args, message):
         uic = cpuPlay(game.board)
         game.player = not game.player
         game.history.append(uic)
-        end = checkBoard()
+        end = checkBoard(NICK)
         if end:
             return end
 
     if board.is_check():
         return ["CHECK"] + [f"It is {game.who()}'s time!"] + [game.utf8_board(game.nicks[game.player])]
-    return [f"It is {game.who()}'s time!"] + game.utf8_board(game.nicks[game.player])
+
+    if game.who() in chan_names:
+        return [f"It is {game.who()}'s time!"] + game.utf8_board(game.nicks[game.player])
+    else:
+        return f"Do not worry {message.nick}; you can still move. {game.who()} will be notified when he is back!"
 
 
 def label(args, message):
@@ -486,18 +497,24 @@ def label(args, message):
 
 
 def colors(args, message):
-    av_colors_str = f"({message.nick}) The available colors are: " + ", ".join(
+    av_colors_str = f"<{message.nick}> The available colors are: " + ", ".join(
         Color.colors()
     )
     pieces_str = "pieces"
     board_str = "board"
     usage_str = (
-        f"({message.nick}) Usage: colors [{pieces_str}|{board_str}] [color1] [color2]"
+        f"<{message.nick}> Usage: colors [{pieces_str}|{board_str}] [color1] [color2]"
     )
     if not args[1]:
         return av_colors_str
     args = [args[i] for i in range(1, 4)]
     a = False
+
+    prefs = get_data(message.nick)
+    prefs = json.loads(prefs['prefs']) if prefs else DEFAULT_PREF
+    FG = prefs['fg']
+    BG = prefs['bg']
+
     if args[0] == "classic":
         BG = [Color.maroon, Color.gray]
         FG = [Color.white, Color.black]
@@ -632,7 +649,7 @@ def history(args, message):
 def games(args, message):
     if not botState.has_any_game(message.nick, message.channel):
         return f"<{message.nick}> You don't have nay game on this channel."
-    games = botState.get_games(message.nicks, message.channel)
+    games = botState.get_games(message.nick, message.channel)
     return f"<{message.nick}> Your games on this channel are against: " + ", ".join([g.p1 if g.p2 == message.nick else g.p2 for g in games])
 
 @utils.arg_command("select", "Select/change between games", f"{PREFIX}select [nick]")
@@ -645,8 +662,26 @@ def select(args, message):
     return game.utf8_board(message.nick)
 
 @utils.custom_handler(["part", "quit"])
-def onQuit(nick, channel="", text=""):
-    return f"Bye {nick}, I will miss you :(  oh it is too late now"
+async def onQuit(bot, nick, channel=None, text=""):
+    async def notifyPlayers(chan):
+        games = botState.get_games(nick, chan)
+        players = [g.other(nick) for g in games]
+        if NICK in players:
+            players.remove(NICK)
+        if len(players) > 0:
+            await bot.send_message(f"Do not worry {', '.join(players)}; you can still move. {nick} will be notified when he is back!")
+
+    if channel is None: #quit
+        games = botState.get_games(nick)
+        for chan in botState.games[nick]:
+            for game in games:
+                if game in botState.games[nick][chan]['games']:
+                    if game.nicks[game.player] == game.other(nick):
+                        await notifyPlayers(chan)
+
+
+    if botState.has_any_game(nick, channel):
+        await notifyPlayers(channel)
 
 
 @utils.custom_handler("join")
@@ -659,8 +694,12 @@ def onEnter(nick, channel):
         for game in games:
             if game.nicks[game.player] == nick:
                 msg.append(f"<{nick}> you have a game with {game.nicks[not game.player]} and it is your turn")
+                botState.select_game(nick, game.other(nick), channel)
             else:
                 msg.append(f"<{nick}> you have a game with {game.nicks[game.player]}")
+        game = botState.get_selected_game(nick, channel)
+        msg.append(f"Game with {game.other(nick)}")
+        msg += game.utf8_board(nick)
         return msg
 
 
