@@ -384,7 +384,7 @@ def score(args, message):
     nick = args[1] if args[1] else message.nick
     data = copy(get_data(nick))
     if data is None:
-        return f"<{message.nick}> I don't know nothing about you yet...." if not args[1] else "<{message.nick}> I don't know nothing about {nick} yet...."
+        return f"<{message.nick}> I don't know nothing about you yet...." if not args[1] else f"<{message.nick}> I don't know nothing about {nick} yet...."
     data.pop("prefs")
     data.pop("id")
     data.pop("nick")
