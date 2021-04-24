@@ -11,7 +11,7 @@
 import json
 import logging
 import re
-from copy import copy
+from copy import copy, deepcopy
 from datetime import datetime
 
 import chess
@@ -33,7 +33,7 @@ NICK = "chessbot"
 PASSWORD = ""
 CHANNELS = ["#bots"]  # , "#lobby",]
 PREFIX = ";"
-STOCKFISH = "/usr/bin/stockfish"
+STOCKFISH = "/usr/games/stockfish"
 TIME_TO_THINK = .05
 EXPIRE_INVITE_IN = 60  # secods
 DEFAULT_PREF = {"fg":[Color.white, Color.black], "bg":[Color.maroon, Color.gray], "label":"   A  B  C  D  E  F  G  H   "}
@@ -286,9 +286,9 @@ class BotState:
     def has_game_with(self, nick, against_nick, channel):
         if not self.has_any_game(nick, channel):
             return None
-        for i, game in enumerate(self.games[nick][channel]["games"]):
-            if nick in [game.p1, game.p2] and against_nick in [game.p1, game.p2]:
-                return i
+        for game in self.games[nick][channel]["games"]:
+            if nick in [game.p1, game.p2] and game.other(nick) == against_nick:
+                return game
         return None
 
     def get_games(self, nick, channel=None):
@@ -311,7 +311,7 @@ class BotState:
         games = self.get_games(nick, channel)
         if games:
             for game in games:
-                if game.p2 == against_nick:
+                if game.other(nick) == against_nick:
                     self.games[nick][channel]["selected"] = self.games[nick][channel][
                         "games"
                     ].index(game)
@@ -322,9 +322,9 @@ class BotState:
         game: Game = self.has_game_with(nick, against_nick, channel)
         if game is None:
             return None
-        if self.games[nick][channel]["selected"] == game:
+        if self.games[nick][channel]['games'][self.games[nick][channel]["selected"]] == game:
             self.games[nick][channel]["selected"] = -1
-        del self.games[nick][channel]["games"][game]
+        self.games[nick][channel]["games"].remove(game)
         self.end_game(against_nick, nick, channel)
         return True
 
@@ -472,10 +472,10 @@ async def move(bot, args, message):
             return end
 
     if board.is_check():
-        return ["CHECK"] + [f"It is {game.who()}'s time!"] + [game.utf8_board(game.nicks[game.player])]
+        return ["CHECK"] + [f"It is {game.who()}'s turn!"] + [game.utf8_board(game.nicks[game.player])]
 
     if game.who() in chan_names:
-        return [f"It is {game.who()}'s time!"] + game.utf8_board(game.nicks[game.player])
+        return [f"It is {game.who()}'s turn!"] + game.utf8_board(game.nicks[game.player])
     else:
         return f"Do not worry {message.nick}; you can still move. {game.who()} will be notified when he is back!"
 
@@ -626,6 +626,19 @@ utils.setCommands(
 )
 
 
+@utils.arg_command("end", "Ends selected game", f"{PREFIX}end or {PREFIX}end [nick]")
+def end(args, message):
+    if not args[1]:
+        game = botState.get_selected_game(message.nick, message.channel)
+    else:
+        game = botState.has_game_with(message.nick, args[1], message.channel)
+    if not game:
+        return f"<{message.nick}> You don't have any game with {args[1]}"
+    if botState.end_game(message.nick, game.other(message.nick), message.channel):
+        return f"<{message.nick}> Game cancelled!"
+    return f"<{message.nick}> Could not remove game {game.p1} vs {game.p2}"
+
+
 @utils.arg_command("who", "Whose move is it")
 def who(args, message):
     game = botState.get_selected_game(message.nick, message.channel)
@@ -653,8 +666,13 @@ def history(args, message):
 
 @utils.arg_command("games", "Current games", "Displays your current games.")
 def games(args, message):
+    if args[1]:
+        if not botState.has_any_game(args[1], message.channel):
+            return f"<{message.nick}> I found no games for that user."
+        games = botState.get_games(args[1], message.channel)
+        return f"<{message.nick}> " + ", ".join([g.p1 if g.p2 == message.nick else g.p2 for g in games])
     if not botState.has_any_game(message.nick, message.channel):
-        return f"<{message.nick}> You don't have nay game on this channel."
+        return f"<{message.nick}> You don't have any game on this channel."
     games = botState.get_games(message.nick, message.channel)
     return f"<{message.nick}> Your games on this channel are against: " + ", ".join([g.p1 if g.p2 == message.nick else g.p2 for g in games])
 
@@ -721,7 +739,7 @@ async def onRun(bot: IrcBot):
     while True:
         for nick in botState.invites:
             for channel in botState.invites[nick]:
-                for against_nick in botState.invites[nick][channel]:
+                for against_nick in deepcopy(botState.invites[nick][channel]):
                     now = datetime.now().timestamp()
                     if now - botState.invites[nick][channel][against_nick] > EXPIRE_INVITE_IN:
                         botState.invites[nick][channel].pop(against_nick)
