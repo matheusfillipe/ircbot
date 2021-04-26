@@ -28,6 +28,7 @@ PRIVATEONLY_FIND = False # Find command only gets replied on private chat (Can b
 MAX_FIND_N_RESULTS = 15 # Number of results to show on find command
 
 
+utils.setParseOrderTopBottom()
 # Registration validation
 class VALIDATE:
     min_name_len = 3

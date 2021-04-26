@@ -12,6 +12,8 @@ from .shortestPrefix import findShortestPrefix
 
 logger = None
 
+parse_order = False
+
 # COMMAND DECORATORS
 regex_commands = []
 regex_commands_accept_pm = []
@@ -267,8 +269,19 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
 
 
 def setPrefix(prefix):
+    """setPrefix. Sets the prefix for arg commands
+
+    :param prefix: str prefix for commands
+    """
     global command_prefix
     command_prefix = prefix
+
+def setParseOrderTopBottom(top_bottom:bool = True):
+    """setParseOrder.
+    :param top_bottom: bool -> if True then first defined regex expressions will overwrite last ones. Default is False
+    """
+    global parse_order
+    parse_order = top_bottom
 
 def setMaxArguments(n):
     """setMaxArguments.

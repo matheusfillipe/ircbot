@@ -43,6 +43,7 @@ INFO_CMDS={
 
 # Useful if connecting to freenode from a blacklisted ip that will require SASL
 USE_SASL = False
+utils.setParseOrderTopBottom()
 
 # Uncoment to use password from environment PW variable, like if you run:
 # `PW=mypw python bot.py`

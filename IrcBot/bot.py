@@ -722,8 +722,11 @@ class IrcBot(object):
                         await self.join(match[3])
 
 
-                channel = data.split()[2].strip()
-                sender_nick = data.split()[0].split("!~")[0][1:].strip()
+                if message['type'] != 'privmsg':
+                    return
+
+                channel = message['channel']
+                sender_nick = message['nick']
                 debug("sent by:", sender_nick)
                 splitter = "PRIVMSG " + channel + " :"
                 msg = splitter.join(data.split(splitter)[1:]).strip()
@@ -747,7 +750,7 @@ class IrcBot(object):
                     await self.process_result(result, channel, sender_nick, is_private)
                     return
 
-                for i, cmd in enumerate(utils.regex_commands[::-1]):
+                for i, cmd in enumerate(utils.regex_commands[::-1] if not utils.parse_order else utils.regex_commands):
                     if matched:
                         break
                     for reg in cmd:
@@ -765,7 +768,7 @@ class IrcBot(object):
                                 matched = True
                                 continue
 
-                for i, cmd in enumerate(utils.regex_commands_with_message[::-1]):
+                for i, cmd in enumerate(utils.regex_commands_with_message[::-1] if not utils.parse_order else utils.regex_commands_with_message):
                     if matched:
                         break
                     for reg in cmd:
