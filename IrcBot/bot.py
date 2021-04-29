@@ -28,6 +28,8 @@ from IrcBot.utils import debug, log, logger
 BUFFSIZE = 2048
 MAX_MESSAGE_LEN = 410
 
+class BotConnectionError(Exception):
+    pass
 
 class Color(object):
     """Colorcodes enum."""
@@ -294,37 +296,74 @@ class IrcBot(object):
         (
             self.send_message_channel,
             self.receive_message_channel,
-        ) = trio.open_memory_channel(0)
-        (
             self.send_db_operation_channel,
             self.receive_db_operation_channel,
-        ) = trio.open_memory_channel(0)
+        ) = [None]*4
         self.replyIntents = {}
+
+        self.ping_delay = 10 # seconds
+
+        self.is_running_with_callback = False
+        self.async_callback = None
+        self.retry_connecting = False
+        self.nursery = None
 
         if not self.username:
             self.username = self.nick
 
+    async def _mainloop(self, async_callback=None):
+        self.is_running_with_callback = True if async_callback else None
+        self.async_callback = async_callback
+        while True:
+            (
+                self.send_message_channel,
+                self.receive_message_channel,
+            ) = trio.open_memory_channel(0)
+            (
+                self.send_db_operation_channel,
+                self.receive_db_operation_channel,
+            ) = trio.open_memory_channel(0)
+            try:
+                async with trio.open_nursery() as nursery:
+                    self.nursery = await nursery.start(self._main_task)
+            except (BotConnectionError, socket.gaierror):
+                log(f"Attempting to reconnect in {self.ping_delay}...")
+                await trio.sleep(self.ping_delay)
+
+    async def _main_task(self, task_status=trio.TASK_STATUS_IGNORED):
+        async with trio.open_nursery() as nursery:
+            with trio.CancelScope() as scope:
+                task_status.started(scope)
+                if self.async_callback is None:
+                    self.nursery = nursery.start_soon(self.connect)
+                else:
+                    self.nursery = nursery.start_soon(self.start_with_callback)
+
+
     def runWithCallback(self, async_callback):
-        """starts the bot with a parallel callback.
+        """starts the bot with an async callback.
 
         Useful if you want to use bot.send without user interaction.
         param: async_callback: async function to be called.
         """
-        trio.run(self.start_with_callback, async_callback)
+        trio.run(self._mainloop, async_callback)
 
-    async def start_with_callback(self, async_callback):
+    async def start_with_callback(self):
         async with trio.open_nursery() as nursery:
             nursery.start_soon(self.connect)
-            nursery.start_soon(self._wait_for_connect_and_cb, async_callback)
+            nursery.start_soon(self._wait_and_async_cb_task)
 
-    async def _wait_for_connect_and_cb(self, cb):
+    async def _wait_and_async_cb_task(self):
         while not self.connected:
             await trio.sleep(1)
-        await cb(self)
+        await self.async_callback(self)
 
-    def run(self):
-        """Simply starts the bot."""
-        trio.run(self.connect)
+    def run(self, async_callback=None):
+        """Simply starts the bot
+
+        param: async_callback: async function to be called.
+        """
+        trio.run(self._mainloop, async_callback)
 
     async def sleep(self, time):
         """Waits for time.
@@ -433,6 +472,28 @@ class IrcBot(object):
                 nursery.start_soon(self.message_task_loop)
                 if self.tables:
                     nursery.start_soon(self.db_operation_loop)
+                nursery.start_soon(self.check_reconnect)
+
+    async def check_reconnect(self):
+        await self.sleep(self.ping_delay)
+        while True:
+            if not self.connected:
+                break
+            self.connected = False
+            await self.send_raw(f"PING {self.host}\r\n")
+            await self.sleep(self.ping_delay)
+        log("Disconnected!! Attempting to reconnect...")
+        await self.s.aclose()
+        raise BotConnectionError("Bot Disconnected: No ping response from server")
+        #self.nursery.cancel()
+
+    async def send_raw(self, data:str):
+        """send_raw. Sends a string to the irc server
+
+        :param data:
+        :type data: str
+        """
+        await self._enqueue_message(data)
 
     async def join(self, channel):
         """joins a channel.
@@ -575,6 +636,7 @@ class IrcBot(object):
     async def data_handler(self, s, data):
         nick = self.nick
         host = self.host
+        self.connected = True
 
         IRC_P = {
             r"^:(.*)!.*PRIVMSG (\S+) :(.*)$": lambda g: {
@@ -722,7 +784,8 @@ class IrcBot(object):
                         await self.join(match[3])
 
 
-                if message['type'] != 'privmsg':
+                if message is None or  message['type'] != 'privmsg':
+                    debug("Ignoring: " + data)
                     return
 
                 channel = message['channel']
