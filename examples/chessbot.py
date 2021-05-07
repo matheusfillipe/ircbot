@@ -17,8 +17,8 @@ from datetime import datetime
 import chess
 import chess.engine
 
-from IrcBot.bot import MAX_MESSAGE_LEN
-from IrcBot.bot import Color, IrcBot, Message, persistentData, utils
+from IrcBot.bot import (MAX_MESSAGE_LEN, Color, IrcBot, Message,
+                        persistentData, utils)
 from IrcBot.utils import debug, log
 
 ##################################################
@@ -26,17 +26,23 @@ from IrcBot.utils import debug, log
 ##################################################
 
 LOGFILE = None
-LEVEL = logging.INFO
+LEVEL = logging.DEBUG
+HOST = "irc.freenode.org"
 HOST = "irc.dot.org.es"
 PORT = 6667
-NICK = "chessbot"
+NICK = "chessbot1"
 PASSWORD = ""
 CHANNELS = ["#bots"]  # , "#lobby",]
 PREFIX = ";"
-STOCKFISH = "/usr/games/stockfish"
-TIME_TO_THINK = .05
+STOCKFISH = "/usr/bin/stockfish"
+TIME_TO_THINK = 0.05
 EXPIRE_INVITE_IN = 60  # secods
-DEFAULT_PREF = {"fg":[Color.white, Color.black], "bg":[Color.maroon, Color.gray], "label":"   A  B  C  D  E  F  G  H   "}
+DEFAULT_PREF = {
+    "fg": [Color.white, Color.black],
+    "bg": [Color.maroon, Color.gray],
+    "label": "   A  B  C  D  E  F  G  H   ",
+    "bmode": "normal",
+}
 
 ############################################################
 
@@ -47,6 +53,7 @@ utils.setPrefix(PREFIX)
 ### Data permanency
 db_columns = ["nick", "checkmates", "stalemates", "draws", "games", "losses", "prefs"]
 db_handler = persistentData(NICK + ".db", "users", db_columns)
+
 
 def get_data(nick):
     for user in db_handler.data:
@@ -62,10 +69,11 @@ def create_data(nick):
         "draws": 0,
         "games": 0,
         "losses": 0,
-        "prefs": json.dumps(DEFAULT_PREF)
+        "prefs": json.dumps(DEFAULT_PREF),
     }
     db_handler.push(default_data)
     return default_data
+
 
 def increment_data(nick, column):
     data = get_data(nick)
@@ -77,22 +85,24 @@ def increment_data(nick, column):
             "draws": 0,
             "games": 0,
             "losses": 0,
-            "prefs": json.dumps(DEFAULT_PREF)
+            "prefs": json.dumps(DEFAULT_PREF),
         }
         data.update({column: 1})
         db_handler.push(data)
         log("Creating player data")
     else:
         data.update({column: data[column] + 1})
-        db_handler.update(data['id'], data)
+        db_handler.update(data["id"], data)
         log("incrementing player data")
+
 
 def update_data(nick, data):
     for user in db_handler.data:
         if nick == user[db_columns[0]]:
             user.update(data)
-            db_handler.update(user['id'], user)
+            db_handler.update(user["id"], user)
             return True
+
 
 ####################################################################################
 # Player logics
@@ -122,10 +132,20 @@ class Game:
     FG_CLASSIC = [Color.white, Color.black]
     BG_MODERN = [Color.purple, Color.red]
     FG_MODERN = [Color.white, Color.yellow]
+    BMODES = {
+        "normal": {"pieces": [1, 1], "pawns": [1, 1], "remap": {}},
+        "hexchat": {
+            "remap": {".": "♟", "P": "♟"},
+            "pieces": [2, 2],
+            "pawns": [2, 2],
+            "prefs": {"label": "    A     B     C    D     E     F     G     H"},
+        },
+    }
 
     LABEL = [
         "   A  B  C  D  E  F  G  H   ",
         "     A   B   C   D   E   F   G   H  ",
+        "    A     B     C    D     E     F     G     H",
     ]
 
     PREF = DEFAULT_PREF
@@ -145,8 +165,8 @@ class Game:
     def loadprefs(self):
         pref1 = get_data(self.p1)
         pref2 = get_data(self.p2)
-        pref1 = pref1['prefs'] if pref1 else None
-        pref2 = pref2['prefs'] if pref2 else None
+        pref1 = pref1["prefs"] if pref1 else None
+        pref2 = pref2["prefs"] if pref2 else None
         self.prefs = {
             self.p1: json.loads(pref1) if pref1 else Game.PREF,
             self.p2: json.loads(pref2) if pref2 else Game.PREF,
@@ -176,21 +196,31 @@ class Game:
         label = self.prefs[nick]["label"]
         BG = self.prefs[nick]["bg"]
         FG = self.prefs[nick]["fg"]
+        bmode = self.prefs[nick]["bmode"]
+        layout = (
+            self.BMODES["normal"] if bmode not in self.BMODES else self.BMODES[bmode]
+        )
+        b_map = deepcopy(remap)
+        b_map.update(layout.get("remap"))
+
+        # Create colored UTF8 board from ASCII board
         R.append(label)
         for l in str(self.board).split("\n"):
             colors = []
             for c in l:
-                if not c.upper() in remap:
+                if not c.upper() in b_map:
                     continue
+                piece_type = "pawns" if b_map[c.upper()] == b_map["P"] else "pieces"
+                spacing = layout[piece_type]
                 if c.upper() == c:
                     piece = Color(
-                        f" {remap[c.upper()]} ",
+                        f"{' '*spacing[0]}{b_map[c.upper()]}{' '*spacing[1]}",
                         bg=BG[bgi],
                         fg=FG[0] if c != "." else BG[bgi],
                     )
                 else:
                     piece = Color(
-                        f" {remap[c.upper()]} ",
+                        f"{' '*spacing[0]}{b_map[c.upper()]}{' '*spacing[1]}",
                         bg=BG[bgi],
                         fg=FG[1] if c != "." else BG[bgi],
                     )
@@ -198,9 +228,8 @@ class Game:
                 bgi = not bgi
             bgi = not bgi
             colors[-1].str = colors[-1].str[:-1]
-            R.append(
-                str(row) + " " + "".join([c.str for c in colors]) + " \003 " + str(row)
-            )
+            sep = " \003 "
+            R.append(str(row) + " " + "".join([c.str for c in colors]) + sep + str(row))
             row -= 1
         R.append(label)
         return R
@@ -214,10 +243,10 @@ def set_prefs(nick, **kwargs):
     """
     for user in db_handler.data:
         if nick == user[db_columns[0]]:
-            data = json.loads(user.get('prefs'))
+            data = json.loads(user.get("prefs"))
             data.update(kwargs)
             user.update({"prefs": json.dumps(data)})
-            db_handler.update(user['id'], user)
+            db_handler.update(user["id"], user)
             return True
     default = Game.PREF
     default.update(kwargs)
@@ -229,7 +258,7 @@ def set_prefs(nick, **kwargs):
             "draws": 0,
             "games": 0,
             "losses": 0,
-            "prefs": json.dumps(default)
+            "prefs": json.dumps(default),
         }
     )
     return False
@@ -237,8 +266,12 @@ def set_prefs(nick, **kwargs):
 
 class BotState:
     def __init__(self):
-        self.games = {}   # {nick: {channel: {selected: index, games: [game1, game2]},..}, ...}
-        self.invites = {}  # {nick: {channel: {nick1: time,  nick2: time },channel2 ...}}
+        self.games = (
+            {}
+        )  # {nick: {channel: {selected: index, games: [game1, game2]},..}, ...}
+        self.invites = (
+            {}
+        )  # {nick: {channel: {nick1: time,  nick2: time },channel2 ...}}
 
     def has_invited(self, nick, against_nick, channel):
         if against_nick in self.invites and channel in self.invites[against_nick]:
@@ -281,7 +314,11 @@ class BotState:
         return new_game
 
     def has_any_game(self, nick, channel):
-        return nick in self.games and channel in self.games[nick] and len(self.games[nick][channel]['games']) > 0
+        return (
+            nick in self.games
+            and channel in self.games[nick]
+            and len(self.games[nick][channel]["games"]) > 0
+        )
 
     def has_game_with(self, nick, against_nick, channel):
         if not self.has_any_game(nick, channel):
@@ -322,11 +359,15 @@ class BotState:
         game: Game = self.has_game_with(nick, against_nick, channel)
         if game is None:
             return None
-        if self.games[nick][channel]['games'][self.games[nick][channel]["selected"]] == game:
+        if (
+            self.games[nick][channel]["games"][self.games[nick][channel]["selected"]]
+            == game
+        ):
             self.games[nick][channel]["selected"] = -1
         self.games[nick][channel]["games"].remove(game)
         self.end_game(against_nick, nick, channel)
         return True
+
 
 # IRC Bot commands
 
@@ -380,16 +421,28 @@ def accept(args, message):
     increment_data(game.p2, "games")
     return [f"<{message.nick}> Starting game with {args[1]}"] + game.utf8_board(game.p1)
 
+
 def score(args, message):
     nick = args[1] if args[1] else message.nick
     data = copy(get_data(nick))
     if data is None:
-        return f"<{message.nick}> I don't know nothing about you yet...." if not args[1] else f"<{message.nick}> I don't know nothing about {nick} yet...."
+        return (
+            f"<{message.nick}> I don't know nothing about you yet...."
+            if not args[1]
+            else f"<{message.nick}> I don't know nothing about {nick} yet...."
+        )
     data.pop("prefs")
     data.pop("id")
     data.pop("nick")
-    data['unfinished'] = data['games']-data['checkmates']-data['stalemates']-data['draws']-data['losses']
+    data["unfinished"] = (
+        data["games"]
+        - data["checkmates"]
+        - data["stalemates"]
+        - data["draws"]
+        - data["losses"]
+    )
     return f"<{nick}> has: {', '.join([f'{n}: {v}' for n,v in data.items()])}"
+
 
 def getMoves(uic, board):
     possible_moves = [m.uci() for m in list(board.legal_moves)]
@@ -459,7 +512,7 @@ async def move(bot, args, message):
 
     if game.nicks[game.player] == NICK:
         if board.is_check():
-            b1 = ['CHECK']
+            b1 = ["CHECK"]
             b1 += game.utf8_board(game.nicks[game.player])
         else:
             b1 = game.utf8_board(game.nicks[game.player])
@@ -472,10 +525,16 @@ async def move(bot, args, message):
             return end
 
     if board.is_check():
-        return ["CHECK"] + [f"It is {game.who()}'s turn!"] + [game.utf8_board(game.nicks[game.player])]
+        return (
+            ["CHECK"]
+            + [f"It is {game.who()}'s turn!"]
+            + [game.utf8_board(game.nicks[game.player])]
+        )
 
     if game.who() in chan_names:
-        return [f"It is {game.who()}'s turn!"] + game.utf8_board(game.nicks[game.player])
+        return [f"It is {game.who()}'s turn!"] + game.utf8_board(
+            game.nicks[game.player]
+        )
     else:
         return f"Do not worry {message.nick}; you can still move. {game.who()} will be notified when he is back!"
 
@@ -489,7 +548,7 @@ def label(args, message):
             f"<{message.nick}> There are only {len(Game.LABEL)} possible labels. Usage: {PREFIX}label [1|2]"
         ] + [f"{i+1}: {l}" for i, l in enumerate(Game.LABEL)]
 
-    set_prefs(message.nick, label=Game.LABEL[n-1])
+    set_prefs(message.nick, label=Game.LABEL[n - 1])
     game: Game = botState.get_selected_game(message.nick, message.channel)
     return (
         ["The label preference was set!"] + game.utf8_board(message.nick)
@@ -513,9 +572,9 @@ def colors(args, message):
     a = False
 
     prefs = get_data(message.nick)
-    prefs = json.loads(prefs['prefs']) if prefs else DEFAULT_PREF
-    FG = prefs['fg']
-    BG = prefs['bg']
+    prefs = json.loads(prefs["prefs"]) if prefs else DEFAULT_PREF
+    FG = prefs["fg"]
+    BG = prefs["bg"]
 
     if args[0] == "classic":
         BG = [Color.maroon, Color.gray]
@@ -571,7 +630,22 @@ def undo(args, message):
     game.pop()
     if against_nick == NICK:
         game.pop()
-    return [f"<{message.nick}> it is {game.nicks[game.player]}'s move"] + game.utf8_board(message.nick)
+    return [
+        f"<{message.nick}> it is {game.nicks[game.player]}'s move"
+    ] + game.utf8_board(message.nick)
+
+
+def bmode(args, message):
+    if args[1] in Game.BMODES:
+        if "prefs" in Game.BMODES[args[1]]:
+            set_prefs(message.nick, bmode=args[1], **Game.BMODES[args[1]]["prefs"])
+        else:
+            set_prefs(message.nick, bmode=args[1])
+        game: Game = botState.get_selected_game(message.nick, message.channel)
+        msg = f"<{message.nick}> {args[1]} mode set!"
+        return [msg] + game.utf8_board(message.nick) if game else msg
+
+    return f"<{message.nick}> This is not a valid option. The only valid options for bmode currently {'is' if len(Game.BMODES) <2 else 'are'}: {', '.join(['`' + key + '`' for key in Game.BMODES.keys()])}"
 
 
 utils.setCommands(
@@ -604,25 +678,30 @@ utils.setCommands(
         "score": {
             "function": score,
             "help": "Player's status",
-            "command_help": f"{PREFIX}score [nick]"
+            "command_help": f"{PREFIX}score [nick]",
         },
         "label": {
             "function": label,
             "help": "Changes the top and bottom row of letters",
-            "command_help": f"{PREFIX}label [1|2]"
+            "command_help": f"{PREFIX}label [1|2]",
         },
         "start": {
             "function": start,
             "help": "Starts a new game",
-            "command_help": f"{PREFIX}start [nick] or start {NICK} to play against the cpu."
+            "command_help": f"{PREFIX}start [nick] or start {NICK} to play against the cpu.",
         },
         "accept": {
             "function": accept,
             "help": "Accepts a game request",
-            "command_help": f"{PREFIX}accept [nick]"
-        }
+            "command_help": f"{PREFIX}accept [nick]",
+        },
+        "client": {
+            "function": bmode,
+            "help": "Sets specific board laytouts for some irc clients",
+            "command_help": f"{PREFIX}bmode hexchat",
+        },
     },
-    prefix=PREFIX
+    prefix=PREFIX,
 )
 
 
@@ -646,23 +725,34 @@ def who(args, message):
         return f"<{message.nick}> it is {game.nicks[game.player]}'s move"
     return f"<{message.nick}> You are not on any game"
 
+
 @utils.arg_command("invitations", "Check if someone started a game with you")
 def invites(args, message):
-    if not message.nick in botState.invites and message.channel in botState.invites[message.nick][message.channel]:
+    if (
+        not message.nick in botState.invites
+        and message.channel in botState.invites[message.nick][message.channel]
+    ):
         return f"<{message.nick}> You don't have any game invitation here"
     names = list(botState.invites[message.nick][message.channel].keys())
     return f"<{message.nick}> You have game invitations from: " + ", ".join(names)
+
 
 @utils.arg_command("history", "Display history of moves")
 def history(args, message):
     game = botState.get_selected_game(message.nick, message.channel)
     if game:
         max_hist = 50
-        chunks = [game.history[i:i+max_hist] for i in range(0, len(game.history), max_hist)]
+        chunks = [
+            game.history[i : i + max_hist]
+            for i in range(0, len(game.history), max_hist)
+        ]
         if len(chunks) == 0:
-            chunks = ['']
-        return [f"<{message.nick}> {', '.join([str(m) for m in hist])}" for hist in chunks]
+            chunks = [""]
+        return [
+            f"<{message.nick}> {', '.join([str(m) for m in hist])}" for hist in chunks
+        ]
     return f"<{message.nick}> You are not on any game"
+
 
 @utils.arg_command("games", "Current games", "Displays your current games.")
 def games(args, message):
@@ -670,11 +760,16 @@ def games(args, message):
         if not botState.has_any_game(args[1], message.channel):
             return f"<{message.nick}> I found no games for that user."
         games = botState.get_games(args[1], message.channel)
-        return f"<{message.nick}> " + ", ".join([g.p1 if g.p2 == message.nick else g.p2 for g in games])
+        return f"<{message.nick}> " + ", ".join(
+            [g.p1 if g.p2 == message.nick else g.p2 for g in games]
+        )
     if not botState.has_any_game(message.nick, message.channel):
         return f"<{message.nick}> You don't have any game on this channel."
     games = botState.get_games(message.nick, message.channel)
-    return f"<{message.nick}> Your games on this channel are against: " + ", ".join([g.p1 if g.p2 == message.nick else g.p2 for g in games])
+    return f"<{message.nick}> Your games on this channel are against: " + ", ".join(
+        [g.p1 if g.p2 == message.nick else g.p2 for g in games]
+    )
+
 
 @utils.arg_command("select", "Select/change between games", f"{PREFIX}select [nick]")
 def select(args, message):
@@ -685,6 +780,7 @@ def select(args, message):
     game = botState.select_game(message.nick, args[1], message.channel)
     return game.utf8_board(message.nick)
 
+
 @utils.custom_handler(["part", "quit"])
 async def onQuit(bot, nick, channel=None, text=""):
     async def notifyPlayers(chan):
@@ -693,18 +789,19 @@ async def onQuit(bot, nick, channel=None, text=""):
         if NICK in players:
             players.remove(NICK)
         if len(players) > 0:
-            await bot.send_message(f"Do not worry {', '.join(players)}; you can still move. {nick} will be notified when he is back!")
+            await bot.send_message(
+                f"Do not worry {', '.join(players)}; you can still move. {nick} will be notified when he is back!"
+            )
 
-    if channel is None: #quit
+    if channel is None:  # quit
         games = botState.get_games(nick)
         if not games:
             return
         for chan in botState.games[nick]:
             for game in games:
-                if game in botState.games[nick][chan]['games']:
+                if game in botState.games[nick][chan]["games"]:
                     if game.nicks[game.player] == game.other(nick):
                         await notifyPlayers(chan)
-
 
     if botState.has_any_game(nick, channel):
         await notifyPlayers(channel)
@@ -719,7 +816,9 @@ def onEnter(nick, channel):
         msg = []
         for game in games:
             if game.nicks[game.player] == nick:
-                msg.append(f"<{nick}> you have a game with {game.nicks[not game.player]} and it is your turn")
+                msg.append(
+                    f"<{nick}> you have a game with {game.nicks[not game.player]} and it is your turn"
+                )
                 botState.select_game(nick, game.other(nick), channel)
             else:
                 msg.append(f"<{nick}> you have a game with {game.nicks[game.player]}")
@@ -732,19 +831,30 @@ def onEnter(nick, channel):
 async def onRun(bot: IrcBot):
     if isinstance(bot.channels, list):
         for channel in bot.channels:
-            await bot.send_message(Color("CHESS BOT INITIALIZED", Color.light_green, Color.black).str, channel)
+            await bot.send_message(
+                Color("CHESS BOT INITIALIZED", Color.light_green, Color.black).str,
+                channel,
+            )
     else:
-        await bot.send_message(Color("CHESS BOT INITIALIZED", Color.light_green, Color.black).str)
+        await bot.send_message(
+            Color("CHESS BOT INITIALIZED", Color.light_green, Color.black).str
+        )
 
     while True:
         for nick in botState.invites:
             for channel in botState.invites[nick]:
                 for against_nick in deepcopy(botState.invites[nick][channel]):
                     now = datetime.now().timestamp()
-                    if now - botState.invites[nick][channel][against_nick] > EXPIRE_INVITE_IN:
+                    if (
+                        now - botState.invites[nick][channel][against_nick]
+                        > EXPIRE_INVITE_IN
+                    ):
                         botState.invites[nick][channel].pop(against_nick)
-                        await bot.send_message(f"<{against_nick}> Your game request to {nick} has expired!", channel)
-        await bot.sleep(.5)
+                        await bot.send_message(
+                            f"<{against_nick}> Your game request to {nick} has expired!",
+                            channel,
+                        )
+        await bot.sleep(0.5)
 
 
 ##################################################

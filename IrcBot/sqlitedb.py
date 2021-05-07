@@ -46,7 +46,7 @@ class DB():
     def toList(self, data):
         """toList. Converts a dict to a row list in the other defined by rowLabels
 
-        :param data: dict. 
+        :param data: dict.
         """
         return [data[n] if n in data.keys() else "" for n in self.rowLabels]
 
