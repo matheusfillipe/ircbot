@@ -26,11 +26,11 @@ sender and if it is a private chat.
 ```python
     @utils.regex_cmd("^!command$")
     def handler(m):
-        g "hi!"
+        return "hi!"
 
     @utils.regex_cmd("^lol$")
     def lol(m):
-        g "YOU SHALL NOT SAY LOL"
+        return "YOU SHALL NOT SAY LOL"
 ```
 
 The first argument of a handler function will always be a Match object: https://docs.python.org/3/library/re.html#match-objects
@@ -40,7 +40,7 @@ The first argument of a handler function will always be a Match object: https://
     @utils.regex_cmd_with_messsage("^who is (.*)$")
     def whoami(m, message):
         m = m.group(1)
-        g f"You are {message.sender_nick} and I have no idea who {m} is"
+        return f"You are {message.sender_nick} and I have no idea who {m} is"
 ```
 
 With regex_cmd_with_messsage there will be 2 arguments for the handler function which are the Match and the message object. The important parameters of Message are sender_nick, channel, message, is_private.
@@ -54,7 +54,7 @@ If all you want is a bot that take simple commands like `!start` `!help` etc... 
 ```python
 @utils.arg_command("test", "Oh this is just some test", "This command is used for like testing")
 def extra(args, message):
-    g Color("Random", Color.random())
+    return Color("Random", Color.random())
 ```
 
 Where you can define the command `test` and with that you are also adding it to the help menu(`utils.help_menu`) and defining the message to display for `help test`. This will automatically create the help command. args there is still a regex match object, so the arguments start from 1, like if you call `test a b c` args[1] is a, args[2] is b and so on.
@@ -103,11 +103,11 @@ Still continuing the data permanency example, you can now modify the variable on
         people.push([m.group(1), m.group(2), m.group(3)])
         # or 
         #people.push({"name": m.group(1), "age": m.group(2),"nickname": m.group(3)})
-        g Message(channel=message.)
+        return Message(channel=message.)
 
     @utils.regex_cmd_with_messsage("^!register.*$") 
     def register(m, message):
-        g ReplyIntent("Enter your name, age and nickname", lambda msg: handler(original_message, msg))
+        return ReplyIntent("Enter your name, age and nickname", lambda msg: handler(original_message, msg))
 ```
 The regexps are matched in the other they are declared and there will be only one callback for each user input, which corresponds to the first defined callback that is matched. Like in this case the handler function will run directly if some user sends "!register name 23 nickname" but the register function won't run. If they were in swapped order then register would just always run. 
 
@@ -135,7 +135,7 @@ First of all: currently it is only possible to have one bot only per python call
 
 None, strings, a list of strings and Message can be used on the same places through this library.
 
-* None: Means no message to send, like if you just `g` on some function
+* None: Means no message to send, like if you just `return` on some function
 * str:  If you want to just send a string or f-string
 * [str1, str2, ...]: To send multiple messages as separated messages.
 * Message: If you want to specify the channel, or send a private message.
