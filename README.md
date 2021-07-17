@@ -23,7 +23,7 @@ simplicity or utils.regex_cmd_with_messsage if you need to know info about the
 sender and if it is a private chat.
 
 
-```
+```python
     @utils.regex_cmd("^!command$")
     def handler(m):
         g "hi!"
@@ -36,14 +36,14 @@ sender and if it is a private chat.
 The first argument of a handler function will always be a Match object: https://docs.python.org/3/library/re.html#match-objects
 
 
-```
+```python
     @utils.regex_cmd_with_messsage("^who is (.*)$")
     def whoami(m, message):
         m = m.group(1)
         g f"You are {message.sender_nick} and I have no idea who {m} is"
 ```
 
-With regex_cmd_with_messsage there will be 2 arguments for the handler function which are the Match and the message object. The important parameters of Message are sernder_nick, channel, message, is_private.
+With regex_cmd_with_messsage there will be 2 arguments for the handler function which are the Match and the message object. The important parameters of Message are sender_nick, channel, message, is_private.
 
 The callback/handler functions can g a string, Message objects, Color objects or a list of any of those, to be sent back by the bot, a Message object, a ReplyIntent or None to send nothing.
 
@@ -51,7 +51,7 @@ The callback/handler functions can g a string, Message objects, Color objects or
 
 If all you want is a bot that take simple commands like `!start` `!help` etc... You can use the `utils.arg_command` decorator:
 
-```
+```python
 @utils.arg_command("test", "Oh this is just some test", "This command is used for like testing")
 def extra(args, message):
     g Color("Random", Color.random())
@@ -59,12 +59,12 @@ def extra(args, message):
 
 Where you can define the command `test` and with that you are also adding it to the help menu(`utils.help_menu`) and defining the message to display for `help test`. This will automatically create the help command. args there is still a regex match object, so the arguments start from 1, like if you call `test a b c` args[1] is a, args[2] is b and so on.
 
-You can also use the `utils.setCommands` function to add commands all together from defined functions by passing in a dict. To change the commands prefix use `utils.setPrefix`. Both setCommands and the arg_command wrapper will use `simplify=True` by by default, which means the bot will accept the minimal prefix versions of the defined commands. 
+You can also use the `utils.setCommands` function to add commands all together from defined functions by passing in a dict. To change the commands prefix use `utils.setPrefix`. Both setCommands and the arg_command wrapper will use `simplify=True` by default, which means the bot will accept the minimal prefix versions of the defined commands. 
 
 Look at the examples to learn more.
 
 ### Launch the bot
-```
+```python
     utils.setLogging(LEVEL, LOGFILE)
     bot = IrcBot(HOST, PORT, NICK, CHANNELS, PASSWORD)
     bot.run()
@@ -81,15 +81,15 @@ You can use the Color class from IrcBot.
 ### Data permanency 
 Data permanency is based on sqlite3. Define a variable like:
 
-```
+```python
 people = persistentData("filename.db", "table_name" , ["name", "age", "nickname"])
 ```
 
-The first two arguments are self explanatory. The last is a list of columns that the table will have and that you will be able to acces through people.data, e.g. `people.data[0]["name"]` to see the name of the first registered person. people.data will be a list of dicts with the given keys/columns.
+The first two arguments are self explanatory. The last is a list of columns that the table will have and that you will be able to access through people.data, e.g. `people.data[0]["name"]` to see the name of the first registered person. people.data will be a list of dicts with the given keys/columns.
 
 Then pass it to the bot constructor as the tables argument. Notice it takes a list since you might want to have multiple of these.:
 
-```
+```python
 bot = IrcBot(HOST, PORT, NICK, CHANNELS, PASSWORD, tables=[people])
 ```
 
@@ -97,7 +97,7 @@ bot = IrcBot(HOST, PORT, NICK, CHANNELS, PASSWORD, tables=[people])
 
 Still continuing the data permanency example, you can now modify the variable on callback functions by either using the push, pop or update methods:
 
-```
+```python
     @utils.regex_cmd_with_messsage("^!register (.*) (.*) (.*)$") # name, age, nickname
     def handler(omsg, message):
         people.push([m.group(1), m.group(2), m.group(3)])
@@ -117,7 +117,7 @@ A ReplyIntent means that the next message this same user sends will be handled w
 
 You can call an async function after the bot connects and join a channel if it was passed to the Bot's constructor. This way you can get the bot respond independently, like send messages even if not command or regexp was sent by a user. To do this, instead of calling `bot.run()` do `bot.runWithCallback(asyncFun)`:
 
-```
+```python
 (...)
 async def asyncFun(bot):
     await bot.sleep(1) # Not necessary, I am just showing you can wait for 1 second like this
@@ -140,7 +140,7 @@ None, strings, a list of strings and Message can be used on the same places thro
 * [str1, str2, ...]: To send multiple messages as separated messages.
 * Message: If you want to specify the channel, or send a private message.
 * ReplyIntent: If you want to set a callback for the next user message and
-    stablish a dialog.
+    establish a dialog.
 * Color: To send a colored message.
 
 Everything is asynchronously handled so you might not want to user something
@@ -148,11 +148,11 @@ besides the push, pop and update methods for the data permanency functions and
 also not try to send messages manually.
 
 Echo bot.
-```
+```python
 def echo(msg):
     if msg == "stop":
-        g
-    g ReplyIntent(msg, echo)
+        return
+    return ReplyIntent(msg, echo)
 
 @utils.regex_cmd_with_messsage(getcmd("^!include.*$", ACCEPT_PRIVATE_MESSAGES)
 def include(m, message):
@@ -178,7 +178,7 @@ Currently they will be simply treated as normal text. This bot does not care
 about user input colors but it can still send colored messages.
 
 Q. Why my async callback doesn't work? (or how does it even work)
-Combared to non async callback functions, if you try to use an async callback
+Compared to non async callback functions, if you try to use an async callback
 like in one of util's wrappers, you will need to pass an extra argument in the
 first position that is 'bot', an IrcBot object which represents the current
 bot. With this you can use IrcBot's methods within a callback function like for
@@ -193,6 +193,6 @@ Take a look at the utils.custom_handler decorator.
 For version 2.0:
 
 1. SASL AUTHENTICATION
-2. Handle weird characteres on input (Colors, fonts, underlines, glyphs etc)
+2. Handle weird character's on input (Colors, fonts, underlines, glyphs etc)
 3. Convert utils to an actual class that can be used as a context
 
