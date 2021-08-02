@@ -140,6 +140,12 @@ class Game:
             "pawns": [2, 2],
             "prefs": {"label": "    A     B     C    D     E     F     G     H"},
         },
+        "erc": {
+            "remap": {".": "♟", "P": "♟"},
+            "pieces": [1, 1],
+            "pawns": [1, 1],
+            "prefs": {"label": "   A  B  C  D  E  F  G  H"},
+        },
     }
 
     LABEL = [
