@@ -85,10 +85,11 @@ def test():
 conversations = {}
 utils.setPrefix("'")
 
-
 @utils.regex_cmd_with_messsage(f"^\s*{NICK}:?\s*(.*)\s*$", False)
 def respond(args, message):
     nick = message.sender_nick
+    text = args[1].strip()
+    text = text + "." if not (text.endswith(".") or text.endswith("!") or text.endswith("?")) else text
     if nick not in conversations:
         aix_resource = AIxResource(API_KEY)
         instance = AiResource(aix_resource, nick)
@@ -96,12 +97,11 @@ def respond(args, message):
     return (
         f"{message.sender_nick}: "
         + conversations[nick]
-        .prompt(args[1])
+        .prompt(text)
         .replace(f"{nick}:", "")
         .replace(f"{NICK}:", "")
         .strip()
     )
-
 
 @utils.arg_command(
     "restart", help="restart our conversation and starts a fresh one(messy)", simplify=False
