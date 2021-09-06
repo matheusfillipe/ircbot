@@ -8,6 +8,7 @@ from functools import wraps
 
 import validators
 
+from .message import Message
 from .shortestPrefix import findShortestPrefix
 
 logger = None
@@ -169,22 +170,6 @@ def arg_command(
 
     return wrap_cmd
 
-# TODO avoid code duplication
-class Message(object):
-    def __init__(self, channel="", sender_nick="", message="", is_private=False):
-        """Message.
-
-        :param channel: Channel from/to which the message is sent or user/nick if private
-        :param sender_nick: Whoever's nick the message came from. Only for received messages. Aliases for this are nick.
-        :param message:str text of the message. Aliases: str, text, txt. For outgoing messages you can also set this to a Color object.
-        :param is_private: If True the message came from a user
-        """
-        self.channel = channel.strip()
-        self.sender_nick = sender_nick.strip()
-        self.nick = sender_nick.strip()
-        self.message = message.strip()
-        self.txt = self.text = self.message
-        self.is_private = is_private
 
 help_msg = {}
 commands_help = {}

@@ -22,8 +22,12 @@ from copy import copy, deepcopy
 import trio
 
 from IrcBot import utils
+from IrcBot.message import Message, ReplyIntent
 from IrcBot.sqlitedb import DB
 from IrcBot.utils import debug, log, logger
+
+Message = Message
+ReplyIntent = ReplyIntent
 
 BUFFSIZE = 2048
 MAX_MESSAGE_LEN = 410
@@ -194,34 +198,6 @@ class persistentData(object):
     def clear(self):
         """Clear all the proposed modifications."""
         self._queue = []
-
-
-class Message(object):
-    def __init__(self, channel="", sender_nick="", message="", is_private=False):
-        """Message.
-
-        :param channel: Channel from/to which the message is sent or user/nick if private
-        :param sender_nick: Whoever's nick the message came from. Only for received messages. Aliases for this are nick.
-        :param message:str text of the message. Aliases: str, text, txt. For outgoing messages you can also set this to a Color object.
-        :param is_private: If True the message came from a user
-        """
-        self.channel = channel.strip()
-        self.sender_nick = sender_nick.strip()
-        self.nick = sender_nick.strip()
-        self.message = message.strip()
-        self.txt = self.text = self.message
-        self.is_private = is_private
-
-
-class ReplyIntent(object):
-    def __init__(self, message, func):
-        """__init__.
-
-        :param message: Message to send. You can use a message object if you want to change channel or make it a pm.
-        :param func: Function to call passing the received full message string that the user will reply with. This is useful for building dialogs. This function must either return None, a message to send back (str or IrcBot.Message) or another ReplyIntent. It must receive one argument.
-        """
-        self.func = func
-        self.message = message
 
 
 class IrcBot(object):
@@ -530,6 +506,8 @@ class IrcBot(object):
         """
         if channel is None:
             channel = self.channels
+
+        log(">>>>>>>>>>>>>>", message)
         if type(channel) == list and type(message) != Message:
             for chan in channel:
                 await self._send_message(message, chan)
