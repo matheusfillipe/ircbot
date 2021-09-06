@@ -546,12 +546,8 @@ class IrcBot(object):
         elif type(message) == Color:
             await self._send_message(message.str, channel)
         elif type(message) == list:
-            raw_msg = ""
             for msg in message:
-                raw_msg += str("PRIVMSG " + channel) + " :" + msg + " \r\n"
-            await self._enqueue_message(raw_msg)
-            # for msg in message:
-            #     await self._send_message(msg, channel)
+                await self._send_message(msg, channel)
         elif type(message) == Message:
             await self._send_message(message.message, message.channel)
 
@@ -750,7 +746,6 @@ class IrcBot(object):
         try:
             # TODO clear this mess 
             # This is for replying to users's ping requests
-            # :mattf!~mattf@45.56.106.138 PRIVMSG _githubbot :PING 1630895101.128965
             if (
                 data.find("PING") != -1
                 and len(data.split(":")) >= 3
