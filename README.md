@@ -1,5 +1,19 @@
 # Simple IRC Bot Library
 
+* [What is this?](#what-is-this?)
+* [How to install](#how-to-install)
+* [Basic usage](#basic-usage)
+  * [Define regex commands](#define-regex-commands)
+  * [Define simple argument commands](#define-simple-argument-commands)
+  * [Launch the bot](#launch-the-bot)
+  * [Colors](#colors)
+  * [Data permanency](#data-permanency)
+  * [Wait for user response](#wait-for-user-response)
+  * [Run independently of user input](#run-independently-of-user-input)
+* [Tips and tricks (logging, async, etc)](#tips-and-tricks-(logging,-async,-etc))
+* [FAQ](#faq)
+* [ROADMAP](#roadmap)
+
 ## What is this?
 
 This is a simple irc bot library that uses trio for async callback processing and allows you to
@@ -193,6 +207,6 @@ Take a look at the utils.custom_handler decorator.
 For version 2.0:
 
 1. SASL AUTHENTICATION
-2. Handle weird character's on input (Colors, fonts, underlines, glyphs etc)
+2. ~~Handle weird character's on input (Colors, fonts, underlines, glyphs etc)~~
 3. Convert utils to an actual class that can be used as a context
 

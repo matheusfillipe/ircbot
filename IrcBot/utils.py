@@ -169,10 +169,36 @@ def arg_command(
 
     return wrap_cmd
 
+# TODO avoid code duplication
+class Message(object):
+    def __init__(self, channel="", sender_nick="", message="", is_private=False):
+        """Message.
+
+        :param channel: Channel from/to which the message is sent or user/nick if private
+        :param sender_nick: Whoever's nick the message came from. Only for received messages. Aliases for this are nick.
+        :param message:str text of the message. Aliases: str, text, txt. For outgoing messages you can also set this to a Color object.
+        :param is_private: If True the message came from a user
+        """
+        self.channel = channel.strip()
+        self.sender_nick = sender_nick.strip()
+        self.nick = sender_nick.strip()
+        self.message = message.strip()
+        self.txt = self.text = self.message
+        self.is_private = is_private
 
 help_msg = {}
 commands_help = {}
-help_menu_separator = " --- "
+help_menu_separator = "\n"
+help_on_private = False
+
+def set_help_on_private(is_private):
+    """Defines if the help messages should be sent as private messages.
+    This is useful to avoide flooding if the bots has many commands.
+
+    :param is_private: if true they will be private (default False: display on the current channel)
+    """
+    global help_on_private
+    help_on_private = is_private
 
 
 def _reg_word(org, pref):
@@ -260,10 +286,19 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
         )
 
         def help_menu(args, message):
+            channel = message.channel
+            if help_on_private:
+                channel = message.sender_nick
+
             if args[1] in commands_help:
-                return commands_help[args[1]]
+                return Message(channel, message=commands_help[args[1]])
             if help_msg:
-                return help_menu_separator.join(list(help_msg.values()))
+                if "\n" in help_menu_separator:
+                    after = help_menu_separator.split("\n")[0]
+                    before = help_menu_separator.split("\n")[-1]
+                    return [Message(channel, message=before + txt + after) for txt in help_msg.values()]
+                else:
+                    return help_menu_separator.join(help_msg.values())
 
         re_command(_reg_word("help", _commands["help"]))(help_menu)
 
