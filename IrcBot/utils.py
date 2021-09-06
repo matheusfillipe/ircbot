@@ -176,7 +176,16 @@ commands_help = {}
 help_menu_separator = "\n"
 help_on_private = False
 
-def set_help_on_private(is_private):
+def setHelpMenuSeparator(sep: str):
+    """Sets the separator string between the help commands. If can contain a '\n'
+
+    :param sep: separator
+    :type sep: str
+    """
+    global help_menu_separator
+    help_menu_separator = sep
+
+def setHelpOnPrivate(is_private):
     """Defines if the help messages should be sent as private messages.
     This is useful to avoide flooding if the bots has many commands.
 
