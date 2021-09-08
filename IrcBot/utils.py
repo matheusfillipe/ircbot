@@ -134,6 +134,12 @@ re_command = (
 
 arg_commands_with_message = {}
 
+simplify_arg_commands = True
+
+def setSimplifyCommands(simplify):
+    global simplify_arg_commands
+    simplify_arg_commands = simplify
+
 
 def arg_command(
     command,
@@ -141,7 +147,7 @@ def arg_command(
     command_help="",
     acccept_pms=True,
     pass_data=False,
-    simplify=True,
+    simplify=None,
     **kwargs,
 ):
     """Wrapper for setCommands.
@@ -153,6 +159,8 @@ def arg_command(
     param: command_help: Message to display on help command with this command's name as argument.
     """
 
+    if simplify is None:
+        simplify = simplify_arg_commands
     def wrap_cmd(func):
         @wraps(func)
         def wrapped(*a, **bb):
@@ -206,7 +214,7 @@ def _reg_word(org, pref):
     )
 
 _defined_command_dict = {}
-def setCommands(command_dict: dict, simplify=True, prefix="!"):
+def setCommands(command_dict: dict, simplify=None, prefix="!"):
     """Defines commands for the bot from existing functions
     param: command_dict: Takes a dictionary of "command names": function's to call creating the commands for each of them.
     param: simplify: Uses shortest prefixes for each command. If True the shortest differentiatable prefixes for the commands will work. Like if there is start and stop, !sta will call start and !sto will call stop. Instead of passing a function  directly you can pass in a dict like:
@@ -215,6 +223,9 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
     """
     global command_prefix, help_msg, commands_help
     command_prefix = prefix
+
+    if simplify is None:
+        simplify = simplify_arg_commands
 
     if "help" in command_dict:
         logging.error("You should not redefine 'help'")
@@ -248,7 +259,8 @@ def setCommands(command_dict: dict, simplify=True, prefix="!"):
         simp = simplify and not not_regex(cmd)
         expression = reg if simp else cmd
         logging.debug("DEFINING %s", expression)
-        logging.debug("simplify? %s", simp)
+        logging.debug("simplify? %s", simplify)
+        logging.debug("simp? %s", simp)
 
         if isinstance(cb, dict):
             re_command(
