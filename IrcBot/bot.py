@@ -771,6 +771,8 @@ class IrcBot(object):
 
                 channel = message['channel']
                 sender_nick = message['nick']
+                if sender_nick.startswith("@"):
+                    sender_nick = sender_nick[1:]
                 debug("sent by:", sender_nick)
                 splitter = "PRIVMSG " + channel + " :"
                 msg = splitter.join(data.split(splitter)[1:]).strip()
