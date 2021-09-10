@@ -6,7 +6,12 @@ import re
 import sys
 from functools import wraps
 
-import validators
+has_validators = False
+try:
+    import validators
+    has_validators = True
+except:
+    pass
 
 from .message import Message
 from .shortestPrefix import findShortestPrefix
@@ -377,7 +382,10 @@ def warning(*args, level=logging.WARNING):
 
 # Extras
 def validateUrl(url):
-    return validators.url(url)
+    if has_validators:
+        return validators.url(url)
+    else:
+        log("You do not have the validators module installed! run `pip install validators` to use this functionality")
 
 
 def m2list(args):
