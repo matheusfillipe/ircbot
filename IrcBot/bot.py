@@ -233,6 +233,7 @@ class IrcBot(object):
         :param delay: int. Delay after nickserv authentication
         :param accept_join_from: str. Who to accept invite command from ([])
         :param tables: List of persistentData to be registered on the bot.
+        :param strip_messages: bool. Should messages be stripped (for *_with_message decorators)
         :param custom_handlers:{type: function, ...} Dict with function values to be called to handle custom server messages. Possible types (keys) are:
         type             kwargs
         'privmsg' -> {'nick', 'channel', 'text'}
@@ -842,14 +843,14 @@ class IrcBot(object):
                                     result = await self._call_cb(
                                         cmd[reg],
                                         m,
-                                        Message(channel, sender_nick, msg, is_private),
+                                        Message(channel, sender_nick, msg, is_private, strip=self.strip_messages),
                                     )
                                 else:
                                     await trio.sleep(0)
                                     result = await self._call_cb(
                                         cmd[reg],
                                         m,
-                                        Message(channel, sender_nick, msg, is_private),
+                                        Message(channel, sender_nick, msg, is_private, strip=self.strip_messages),
                                     )
 
                             if result:
