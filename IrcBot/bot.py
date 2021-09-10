@@ -217,7 +217,8 @@ class IrcBot(object):
         delay=False,
         accept_join_from=[],
         tables=[],
-        custom_handlers={}
+        custom_handlers={},
+        strip_messages=True
     ):
         """Creates a bot instance joining to the channel if specified.
 
@@ -257,6 +258,7 @@ class IrcBot(object):
         self.accept_join_from = accept_join_from
         self.custom_handlers = utils.custom_handlers
         self.custom_handlers.update(custom_handlers)
+        self.strip_messages = strip_messages
 
         self.connected = False
         self.server_channels = {}
@@ -778,7 +780,10 @@ class IrcBot(object):
                     sender_nick = sender_nick[1:]
                 debug("sent by:", sender_nick)
                 splitter = "PRIVMSG " + channel + " :"
-                msg = splitter.join(data.split(splitter)[1:]).strip()
+                if self.strip_messages:
+                    msg = splitter.join(data.split(splitter)[1:]).strip()
+                else:
+                    msg = splitter.join(data.split(splitter)[1:])
                 is_private = channel == self.nick
                 channel = channel if channel != self.nick else sender_nick
                 matched = False
