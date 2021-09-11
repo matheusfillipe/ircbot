@@ -513,7 +513,6 @@ class IrcBot(object):
         if channel is None:
             channel = self.channels
 
-        log(">>>>>>>>>>>>>>", message)
         if type(channel) == list and type(message) != Message:
             for chan in channel:
                 await self._send_message(message, chan)
@@ -586,7 +585,7 @@ class IrcBot(object):
                 async for data in s:
                     data = data.decode("utf-8")
                     debug(
-                        "DECODED DATA FROM SERVER: \n", 40 * "-", "\n", data, 40 * "-", "\n"
+                        "\nDECODED DATA FROM SERVER: \n", 60 * "-", "\n", data, 60 * "-", "\n"
                     )
                     self.fetch_tables()
                     for msg in data.split("\r\n"):
