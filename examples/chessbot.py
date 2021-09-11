@@ -93,6 +93,12 @@ def load_ongoing_games():
         debug("Read failed. Creating new file json")
         save_ongoing_games({})
         return load_ongoing_games()
+    except json.decoder.JSONDecodeError:
+        log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        log("Recreating json store. Reason: File is corrupt")
+        data = {}
+        with open(ONGOING_GAMES_STORE, 'w') as outfile:
+            json.dump(data, outfile)
     return data
 
 def add_game(nick, against_nick, channel):
@@ -182,7 +188,7 @@ def cpuPlay(board: chess.Board):
     global engine
     result = engine.play(board, chess.engine.Limit(time=TIME_TO_THINK))
     board.push(result.move)
-    return result.move
+    return result.move.uci()
 
 
 class Game:
@@ -569,7 +575,8 @@ async def move(bot, args, message):
         return f"<{message.nick}> Invalid move! Use uic moves like e2e4, c8c4, a7a8q, etc..."
 
     game.move(args[1])
-    update_game(game.p1, game.p2, message.channel, game)
+    if game.nicks[game.player] != NICK:
+        update_game(game.p1, game.p2, message.channel, game)
 
     def endGame(msg, nick):
         boards = game.utf8_board(game.p1) + game.utf8_board(game.p2)
