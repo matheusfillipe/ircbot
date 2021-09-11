@@ -32,22 +32,25 @@ HOST = "irc.dot.org.es"
 PORT = 6667
 NICK = "chessbot1"
 PASSWORD = ""
-CHANNELS = ["#bots"]  # , "#lobby",]
+CHANNELS = ["#test"]  # , "#lobby",]
 PREFIX = ";"
 STOCKFISH = "/usr/bin/stockfish"
 TIME_TO_THINK = 0.05
 EXPIRE_INVITE_IN = 60  # secods
+EXPIRE_REQUEST_TIME = 15
 DEFAULT_PREF = {
     "fg": [Color.white, Color.black],
     "bg": [Color.maroon, Color.gray],
     "label": "   A  B  C  D  E  F  G  H   ",
     "bmode": "normal",
 }
+ONGOING_GAMES_STORE = f"{NICK}_ongoing_games.json"
 
 ############################################################
 
 utils.setLogging(LEVEL, LOGFILE)
 utils.setPrefix(PREFIX)
+utils.setHelpOnPrivate(True)
 
 
 ### Data permanency
@@ -70,10 +73,63 @@ def create_data(nick):
         "games": 0,
         "losses": 0,
         "prefs": json.dumps(DEFAULT_PREF),
+        "ongoing_games": "{}", # {channel: against_nick: [b2b4,c3c6..]}
     }
     db_handler.push(default_data)
     return default_data
 
+def save_ongoing_games(data):
+    debug("Reading ongoing games json")
+    with open(ONGOING_GAMES_STORE, 'w') as outfile:
+        json.dump(data, outfile)
+
+def load_ongoing_games():
+    debug("Trying to read ongoing games json")
+    data = None
+    try:
+        with open(ONGOING_GAMES_STORE) as json_file:
+            data = json.load(json_file)
+    except FileNotFoundError:
+        debug("Read failed. Creating new file json")
+        save_ongoing_games({})
+        return load_ongoing_games()
+    return data
+
+def add_game(nick, against_nick, channel):
+    ongoing_games = load_ongoing_games()
+    if channel in ongoing_games and against_nick in ongoing_games[channel]:
+        return
+    if nick not in ongoing_games:
+        ongoing_games[nick] = {}
+    if channel not in ongoing_games:
+        ongoing_games[nick][channel] = {}
+    ongoing_games[nick][channel][against_nick] = []
+    save_ongoing_games(ongoing_games)
+    debug("Created ongoing game Data!!!!!")
+    return True
+
+def update_game(nick, against_nick, channel, game, nocheck=False):
+    ongoing_games = load_ongoing_games()
+    debug(f"Searching for {nick=} {channel=} {ongoing_games=} ")
+    if nick in ongoing_games and channel in ongoing_games[nick] and against_nick in ongoing_games[nick][channel]:
+        ongoing_games[nick][channel][against_nick] = game.history
+        save_ongoing_games(ongoing_games)
+        debug("Updated ongoing game Data!!!!!")
+        return True
+    if nocheck:
+        return
+    update_game(game.other(nick), nick, channel, game, nocheck=True)
+
+def delete_game(nick, against_nick, channel, game, nocheck=False):
+    ongoing_games = load_ongoing_games()
+    if nick in ongoing_games and channel in ongoing_games[nick] and against_nick in ongoing_games[nick][channel]:
+        del ongoing_games[nick][channel][against_nick]
+        save_ongoing_games(ongoing_games)
+        debug("Removed ongoing game Data!!!!!")
+        return True
+    if nocheck:
+        return
+    delete_game(game.other(nick), nick, channel, game, nocheck=True)
 
 def increment_data(nick, column):
     data = get_data(nick)
@@ -86,14 +142,16 @@ def increment_data(nick, column):
             "games": 0,
             "losses": 0,
             "prefs": json.dumps(DEFAULT_PREF),
+            "ongoing_games": "{}", # {channel: against_nick: [b2b4,c3c6..]}
         }
         data.update({column: 1})
-        db_handler.push(data)
         log("Creating player data")
+        db_handler.push(data)
+        return data
     else:
+        log("incrementing player data")
         data.update({column: data[column] + 1})
         db_handler.update(data["id"], data)
-        log("incrementing player data")
 
 
 def update_data(nick, data):
@@ -134,7 +192,7 @@ class Game:
     FG_MODERN = [Color.white, Color.yellow]
     BMODES = {
         "normal": {"pieces": [1, 1], "pawns": [1, 1], "remap": {}},
-        "hexchat": {
+        "wide": {
             "remap": {".": "♟", "P": "♟"},
             "pieces": [2, 2],
             "pawns": [2, 2],
@@ -278,6 +336,29 @@ class BotState:
         self.invites = (
             {}
         )  # {nick: {channel: {nick1: time,  nick2: time },channel2 ...}}
+        self.undo_requests = {} # {nick: {channel: {nick: time}}}
+
+    def request_undo(self, nick, against_nick, channel):
+        if not self.has_game_with(nick, against_nick, channel):
+            return
+        if not against_nick in self.undo_requests:
+            self.undo_requests[against_nick] = {}
+        if not channel in self.undo_requests[against_nick]:
+            self.undo_requests[against_nick][channel] = {}
+        self.undo_requests[against_nick][channel][nick] = datetime.now().timestamp()
+        return True
+
+    def undo(self, nick, against_nick, channel):
+        game = self.has_game_with(nick, against_nick, channel)
+        if not game:
+            return
+
+        if against_nick in self.undo_requests and channel in self.undo_requests[against_nick] and nick in self.undo_requests[against_nick][channel]:
+            time = self.undo_requests[against_nick][channel][nick]
+            del self.undo_requests[against_nick][channel][nick]
+            if datetime.now().timestamp() - time < EXPIRE_REQUEST_TIME:
+                return True
+            return False
 
     def has_invited(self, nick, against_nick, channel):
         if against_nick in self.invites and channel in self.invites[against_nick]:
@@ -311,8 +392,8 @@ class BotState:
             "selected"
         ] = -1  # len(self.games[nick][channel]['games']) - 1
 
-    def add_game(self, nick, against_nick, channel):
-        if against_nick != NICK and not self.remove_invite(nick, against_nick, channel):
+    def add_game(self, nick, against_nick, channel, check_invitation=True):
+        if check_invitation and (against_nick != NICK and not self.remove_invite(nick, against_nick, channel)):
             return None
         new_game = Game(nick, against_nick)
         self._add_game(nick, against_nick, channel, new_game)
@@ -393,6 +474,7 @@ def print_board(args, message: Message, notsave=False):
 
 async def start(bot, args, message):
     names = bot.channel_names[message.channel]
+    names = [name[1:] if name.startswith("@") else name for name in names]
     nick = message.nick
     if not args[1]:
         return f"<{message.nick}> Usage: {PREFIX}start [nick] or start {NICK} to play against the cpu."
@@ -410,6 +492,7 @@ async def start(bot, args, message):
         game = botState.add_game(message.nick, args[1], message.channel)
         increment_data(game.p1, "games")
         increment_data(game.p2, "games")
+        add_game(game.p1, game.p2, message.channel)
         return ["Starting CPU game"] + game.utf8_board(nick)
 
     botState.invite(nick, args[1], message.channel)
@@ -425,6 +508,7 @@ def accept(args, message):
 
     increment_data(game.p1, "games")
     increment_data(game.p2, "games")
+    add_game(game.p1, game.p2, message.channel)
     return [f"<{message.nick}> Starting game with {args[1]}"] + game.utf8_board(game.p1)
 
 
@@ -467,6 +551,7 @@ async def move(bot, args, message):
 
     game: Game = botState.get_selected_game(message.nick, message.channel)
     chan_names = bot.channel_names[message.channel]
+    chan_names = [name[1:] if name.startswith("@") else name for name in chan_names]
     if game is None:
         return f"<{message.nick}> You don't have any game selected"
     if game.nicks[game.player] != message.nick:
@@ -484,6 +569,7 @@ async def move(bot, args, message):
         return f"<{message.nick}> Invalid move! Use uic moves like e2e4, c8c4, a7a8q, etc..."
 
     game.move(args[1])
+    update_game(game.p1, game.p2, message.channel, game)
 
     def endGame(msg, nick):
         boards = game.utf8_board(game.p1) + game.utf8_board(game.p2)
@@ -497,17 +583,21 @@ async def move(bot, args, message):
             if board.is_variant_draw():
                 increment_data(game.p1, "draws")
                 increment_data(game.p2, "draws")
+                delete_game(game.p1, game.p2, message.channel, game)
                 return endGame("DRAW!", nick)
             if board.is_stalemate():
                 increment_data(nick, "stalemates")
                 increment_data(against_nick, "losses")
+                delete_game(game.p1, game.p2, message.channel, game)
                 return endGame("STALEMATE!", nick)
             if board.is_checkmate():
                 increment_data(nick, "checkmates")
                 increment_data(against_nick, "losses")
+                delete_game(game.p1, game.p2, message.channel, game)
                 return endGame("CHECKMATE!", nick)
             increment_data(nick, "checkmates")
             increment_data(against_nick, "losses")
+            delete_game(game.p1, game.p2, message.channel, game)
             boards = game.utf8_board(game.p1) + game.utf8_board(game.p2)
             botState.end_game(nick, against_nick, message.channel)
             return ["END..."] + boards
@@ -526,6 +616,7 @@ async def move(bot, args, message):
         uic = cpuPlay(game.board)
         game.player = not game.player
         game.history.append(uic)
+        update_game(game.p1, game.p2, message.channel, game)
         end = checkBoard(NICK)
         if end:
             return end
@@ -633,13 +724,33 @@ def undo(args, message):
     against_nick = game.p2 if game.p1 == message.nick else game.p1
     if game is None:
         return f"<{message.nick}> You don't have any game selected"
-    game.pop()
+
+    if botState.undo(against_nick, message.nick, message.channel) == True:
+        game.pop()
+        update_game(game.p1, game.p2, message.channel, game)
+        return [
+            f"<{message.nick}> it is {game.nicks[game.player]}'s move"
+        ] + game.utf8_board(message.nick)
+
+    if botState.undo(against_nick, message.nick, message.channel) == False:
+        return f"<{message.nick}> The undo request has expired. Repeat the command if you want to undo again."
+
     if against_nick == NICK:
         game.pop()
-    return [
-        f"<{message.nick}> it is {game.nicks[game.player]}'s move"
-    ] + game.utf8_board(message.nick)
+        game.pop()
+        update_game(game.p1, game.p2, message.channel, game)
+        return [
+            f"<{message.nick}> it is {game.nicks[game.player]}'s move"
+        ] + game.utf8_board(message.nick)
 
+
+    if game.who() != game.other(message.nick):
+        return f"<{message.nick}> you can only undo when it is not your turn (after your last move)"
+
+    if botState.request_undo(message.nick, against_nick, message.channel):
+        return f"<{game.other(message.nick)}> {message.nick} is asking you to undo the last movement. Use `{PREFIX}undo` to accept this action within the next {EXPIRE_REQUEST_TIME} seconds."
+
+    return f"<{message.nick}> You can't undo now"
 
 def bmode(args, message):
     if args[1] in Game.BMODES:
@@ -720,9 +831,32 @@ def end(args, message):
     if not game:
         return f"<{message.nick}> You don't have any game with {args[1]}"
     if botState.end_game(message.nick, game.other(message.nick), message.channel):
+        delete_game(game.p1, game.p2, message.channel, game)
         return f"<{message.nick}> Game cancelled!"
     return f"<{message.nick}> Could not remove game {game.p1} vs {game.p2}"
 
+@utils.arg_command("forfeit", "Forfeits selected game", f"{PREFIX}forfeit or {PREFIX}forfeit [nick]")
+def forfeit(args, message):
+    if not args[1]:
+        game = botState.get_selected_game(message.nick, message.channel)
+    else:
+        game = botState.has_game_with(message.nick, args[1], message.channel)
+    if not game:
+        return f"<{message.nick}> You don't have any game with {args[1]}"
+
+    is_onwer = game.p1 == message.nick
+    against_nick = game.other(message.nick)
+    if botState.end_game(message.nick, game.other(message.nick), message.channel):
+        if is_onwer:
+            increment_data(message.nick, "losses")
+            increment_data(against_nick, "stalemates")
+            delete_game(message.nick, against_nick, message.channel, game)
+        else:
+            increment_data(message.nick, "losses")
+            increment_data(against_nick, "stalemates")
+            delete_game(against_nick, message.nick, message.channel, game)
+        return f"<{against_nick}> {message.nick} forfeits, you win!"
+    return f"<{message.nick}> Could not remove game {game.p1} vs {game.p2}"
 
 @utils.arg_command("who", "Whose move is it")
 def who(args, message):
@@ -812,7 +946,6 @@ async def onQuit(bot, nick, channel=None, text=""):
     if botState.has_any_game(nick, channel):
         await notifyPlayers(channel)
 
-
 @utils.custom_handler("join")
 def onEnter(nick, channel):
     if nick == NICK:  # Ignore myself ;)
@@ -833,8 +966,27 @@ def onEnter(nick, channel):
         msg += game.utf8_board(nick)
         return msg
 
+def load_game(nick, against_nick, channel, moves):
+    debug(f"Loading {nick}")
+    game = botState.add_game(nick, against_nick, channel, check_invitation=False)
+    for m in moves:
+        game.move(m)
+
+def load_games():
+    for user in db_handler.data:
+        ongoing_games = load_ongoing_games()
+        nick = user[db_columns[0]]
+        if nick not in ongoing_games:
+            continue
+        for channel in ongoing_games[nick]:
+            for against_nick in ongoing_games[nick][channel]:
+                moves = ongoing_games[nick][channel][against_nick]
+                load_game(nick, against_nick, channel, moves)
 
 async def onRun(bot: IrcBot):
+    log("Loading ongoing games...")
+    load_games()
+    log("Done loading ongoing games!")
     if isinstance(bot.channels, list):
         for channel in bot.channels:
             await bot.send_message(
