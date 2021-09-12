@@ -494,14 +494,15 @@ class IrcBot(object):
 
     async def list_names(self, channel):
         """Lists users nicks in channel. 
-        Also check bot.channel_names for a non sanitized version(like starting with @ for operators, if you want to detect them)
+        Also check bot.channel_names for a non sanitized version(like starting with ~ & % @ + for operators, moderators, etc; if you want to detect them)
 
         :param channel:str channel name
         """
         await self._send_data(f"NAMES {channel}")
         await self.sleep(1)
+        special_symbols = ["~", "&", "%", "@", "+",]
         names = self.channel_names[channel]
-        names = [name[1:] if name.startswith("@") else name for name in names]
+        names = [name[1:] if any([name.startswith(s) for s in special_symbols]) else name for name in names]
         return names
 
     async def send_message(self, message, channel=None):
