@@ -499,8 +499,8 @@ class IrcBot(object):
 
         :param channel:str channel name
         """
-        await self._send_data(f"NAMES {channel}")
-        await self.sleep(2)
+        # await self._send_data(f"NAMES {channel}")
+        # await self.sleep(2)
         special_symbols = ["~", "&", "%", "@", "+",]
         names = self.channel_names[channel]
         names = [name[1:] if any([name.startswith(s) for s in special_symbols]) else name for name in names]
@@ -633,6 +633,7 @@ class IrcBot(object):
             r"^\s*PING \s*"
             + self.nick
             + r"\s*$": lambda g: {"type": "ping", "ping": self.nick},
+
             r"^:\S* 353 "
             + self.nick
             + r" = (\S+) :(.*)\s*$": lambda g: {
@@ -652,15 +653,16 @@ class IrcBot(object):
                 "nick": g[1],
                 "text": g[2],
             },
-            r"^:(.+)!.* JOIN (\S+)\s*$": lambda g: {
+            r"^:(.+)!.* JOIN :?(\S+)\s*$": lambda g: {
                 "type": "join",
                 "nick": g[1],
                 "channel": g[2],
             },
-            r"^:(.+)!.* PART (\S+) :.*\s*$": lambda g: {
+            r"^:(.+)!.* PART (\S+)( :.*\s*)?$": lambda g: {
                 "type": "part",
                 "nick": g[1],
                 "channel": g[2],
+                "text": g[3],
             },
             r"^:(.+) 433 (\S*) (\S*) :(.*)\s*$": lambda g: {
                 "type": "nickinuse",
@@ -672,12 +674,10 @@ class IrcBot(object):
                 "type": "selfquit",
                 "reply": f"*{g[1]}: You have quit*",
             },
-            r"^:"
-            + self.nick
-            + r"!.* NICK (\S+)\s*$": lambda g: {
+            r"^:(\S+)!.* NICK :?(\S+)\s*$": lambda g: {
                 "type": "nickchange",
-                "nickchange": g[1],
                 "nick": g[1],
+                "nickchange": g[2],
             },
         }
 
@@ -699,6 +699,13 @@ class IrcBot(object):
             if message['type'] == 'names':
                 self.channel_names[message['channel']] = message['names']
                 return
+
+            if message['type'] == 'nickchange':
+                for channel in self.channel_names:
+                    if message['nick'] in self.channel_names[channel]:
+                        self.channel_names[channel].remove(message['nick'])
+                    if message['nickchange'] not in self.channel_names[channel]:
+                        self.channel_names[channel].append(message['nickchange'])
 
             if message['type'] == 'join':
                 if not message['channel'] in self.channel_names:

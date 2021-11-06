@@ -85,7 +85,7 @@ def save_ongoing_games(data):
 
 def load_ongoing_games():
     debug("Trying to read ongoing games json")
-    data = None
+    data = {}
     try:
         with open(ONGOING_GAMES_STORE) as json_file:
             data = json.load(json_file)
