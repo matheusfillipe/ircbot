@@ -403,11 +403,12 @@ class IrcBot(object):
 
             ping_confirmed = False
             try:
-                with trio.fail_after(2):
+                with trio.fail_after(5):
                     await self.ping_confirmation(s)
                     ping_confirmed = True
+                    log("SUBMITTING PING COOKIE CONFIRMATION")
             except:
-                log("No ping confirmation")
+                log("NO PING CONFIRMATION!!!!!")
 
             if self.password:
                 log("IDENTIFYING")
@@ -499,7 +500,7 @@ class IrcBot(object):
         :param channel:str channel name
         """
         await self._send_data(f"NAMES {channel}")
-        await self.sleep(1)
+        await self.sleep(2)
         special_symbols = ["~", "&", "%", "@", "+",]
         names = self.channel_names[channel]
         names = [name[1:] if any([name.startswith(s) for s in special_symbols]) else name for name in names]

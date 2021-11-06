@@ -479,8 +479,7 @@ def print_board(args, message: Message, notsave=False):
 
 
 async def start(bot, args, message):
-    names = bot.channel_names[message.channel]
-    names = [name[1:] if name.startswith("@") else name for name in names]
+    names = await bot.list_names(message.channel)
     nick = message.nick
     if not args[1]:
         return f"<{message.nick}> Usage: {PREFIX}start [nick] or start {NICK} to play against the cpu."
@@ -556,8 +555,7 @@ async def move(bot, args, message):
         uci = None
 
     game: Game = botState.get_selected_game(message.nick, message.channel)
-    chan_names = bot.channel_names[message.channel]
-    chan_names = [name[1:] if name.startswith("@") else name for name in chan_names]
+    chan_names = await bot.list_names(message.channel)
     if game is None:
         return f"<{message.nick}> You don't have any game selected"
     if game.nicks[game.player] != message.nick:
@@ -900,6 +898,10 @@ def history(args, message):
         ]
     return f"<{message.nick}> You are not on any game"
 
+@utils.arg_command("names", "Lists users on this room")
+async def list_names(bot, args, message):
+    names = await bot.list_names(message.channel)
+    return " ".join(names)
 
 @utils.arg_command("games", "Current games", "Displays your current games.")
 def games(args, message):
