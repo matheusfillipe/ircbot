@@ -973,7 +973,7 @@ def onEnter(nick, channel):
         game = botState.get_selected_game(nick, channel)
         msg.append(f"Game with {game.other(nick)}")
         msg += game.utf8_board(nick)
-        return msg
+        return Message(channel, message=msg)
 
 def load_game(nick, against_nick, channel, moves):
     debug(f"Loading {nick}")
