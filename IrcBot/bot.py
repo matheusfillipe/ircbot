@@ -4,8 +4,8 @@
 #  Matheus Fillipe -- 13, December of 2020                              #
 #                                                                       #
 #########################################################################
-#  Description: Simple bot framework that will handle the very basic.   #
-#                                                                       #
+#  Description: Simple bot framework that will handle the very basics   #
+# of the IRC and DCC protocol                                           #
 #                                                                       #
 #########################################################################
 #  Depends on: `pip3 install -r requirements.txt`                       #
@@ -18,10 +18,13 @@ import random
 import re
 import socket
 from copy import copy, deepcopy
+from functools import partial
+from math import ceil, floor
+from pathlib import Path
 
 import trio
 
-from IrcBot import utils
+from IrcBot import dcc, utils
 from IrcBot.message import Message, ReplyIntent
 from IrcBot.sqlitedb import DB
 from IrcBot.utils import debug, log, logger
@@ -32,8 +35,10 @@ ReplyIntent = ReplyIntent
 BUFFSIZE = 2048
 MAX_MESSAGE_LEN = 410
 
+
 class BotConnectionError(Exception):
     pass
+
 
 class Color(object):
     """Colorcodes enum."""
@@ -92,7 +97,10 @@ class Color(object):
         return [
             k
             for k in Color.__dict__
-            if not (k.startswith("_") or k in ["esc", "COLORS", "colors", "getcolors", "random"])
+            if not (
+                k.startswith("_")
+                or k in ["esc", "COLORS", "colors", "getcolors", "random"]
+            )
         ]
 
     def __str__(self):
@@ -208,17 +216,19 @@ class IrcBot(object):
         host,
         port=6667,
         nick="bot",
-        channels=[],
+        channels=None,
         username=None,
         password="",
         server_password="",
         use_sasl=False,
         use_ssl=False,
         delay=False,
-        accept_join_from=[],
-        tables=[],
-        custom_handlers={},
-        strip_messages=True
+        accept_join_from=None,
+        tables=None,
+        custom_handlers=None,
+        strip_messages=True,
+        dcc_ports=None,
+        dcc_host=False,
     ):
         """Creates a bot instance joining to the channel if specified.
 
@@ -235,15 +245,30 @@ class IrcBot(object):
         :param tables: List of persistentData to be registered on the bot.
         :param strip_messages: bool. Should messages be stripped (for *_with_message decorators)
         :param custom_handlers:{type: function, ...} Dict with function values to be called to handle custom server messages. Possible types (keys) are:
-        type             kwargs
-        'privmsg' -> {'nick', 'channel', 'text'}
-        'ping' -> {'ping'}
-        'names' -> {'channel', 'names'}
-        'channel' -> {'channel', 'channeldescription'}
-        'join' -> {'nick', 'channel'}
-        'quit' -> {'nick', 'text'}
-        'part' -> {'nick', 'channel'}
+            type             kwargs
+            'privmsg' -> {'nick', 'channel', 'text'}
+            'ping' -> {'ping'}
+            'names' -> {'channel', 'names'}
+            'channel' -> {'channel', 'channeldescription'}
+            'join' -> {'nick', 'channel'}
+            'quit' -> {'nick', 'text'}
+            'part' -> {'nick', 'channel'}
+            'dccsend' -> {'nick', 'filename', 'ip', 'port', 'size', 'token'}
+        :param dcc_ports: list of ports numbers to use for dcc
+        :param dcc_host: ip address to bind to for passive dcc file receiving and dcc send.
+        type: str ip or None to bind to the wildcard address. Default will try to guess (LAN IP)
         """
+
+        if channels is None:
+            channels = []
+        if accept_join_from is None:
+            accept_join_from = []
+        if tables is None:
+            tables = []
+        if custom_handlers is None:
+            custom_handlers = {}
+        if dcc_ports is None:
+            dcc_ports = list(range(4990, 5000))
 
         self.nick = nick
         self.password = password
@@ -260,6 +285,15 @@ class IrcBot(object):
         self.custom_handlers = utils.custom_handlers
         self.custom_handlers.update(custom_handlers)
         self.strip_messages = strip_messages
+        self.dcc_ports = dcc_ports
+        self.dcc_host = dcc_host
+        self._dcc_busy_ports = {}
+        if self.dcc_host is False:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            self.dcc_host = s.getsockname()[0]
+            s.close()
+        self._awaiting_messages = {}
 
         self.connected = False
         self.server_channels = {}
@@ -268,19 +302,17 @@ class IrcBot(object):
         if utils.arg_commands_with_message:
             new_commands = deepcopy(utils._defined_command_dict)
             new_commands.update(utils.arg_commands_with_message)
-            utils.setCommands(
-                new_commands, prefix=utils.command_prefix
-            )
+            utils.setCommands(new_commands, prefix=utils.command_prefix)
 
         (
             self.send_message_channel,
             self.receive_message_channel,
             self.send_db_operation_channel,
             self.receive_db_operation_channel,
-        ) = [None]*4
+        ) = [None] * 4
         self.replyIntents = {}
 
-        self.ping_delay = 10 # seconds
+        self.ping_delay = 30  # seconds
 
         self.is_running_with_callback = False
         self.async_callback = None
@@ -318,7 +350,6 @@ class IrcBot(object):
                 else:
                     self.nursery = nursery.start_soon(self.start_with_callback)
 
-
     def runWithCallback(self, async_callback):
         """starts the bot with an async callback.
 
@@ -338,7 +369,7 @@ class IrcBot(object):
         await self.async_callback(self)
 
     def run(self, async_callback=None):
-        """Simply starts the bot
+        """Simply starts the bot.
 
         param: async_callback: async function to be called.
         """
@@ -407,7 +438,7 @@ class IrcBot(object):
                     await self.ping_confirmation(s)
                     ping_confirmed = True
                     log("SUBMITTING PING COOKIE CONFIRMATION")
-            except:
+            except trio.TooSlowError:
                 log("NO PING CONFIRMATION!!!!!")
 
             if self.password:
@@ -465,10 +496,10 @@ class IrcBot(object):
         log("Disconnected!! Attempting to reconnect...")
         await self.s.aclose()
         raise BotConnectionError("Bot Disconnected: No ping response from server")
-        #self.nursery.cancel()
+        # self.nursery.cancel()
 
-    async def send_raw(self, data:str):
-        """send_raw. Sends a string to the irc server
+    async def send_raw(self, data: str):
+        """send_raw. Sends a string to the irc server.
 
         :param data:
         :type data: str
@@ -494,20 +525,31 @@ class IrcBot(object):
         return self.server_channels
 
     async def list_names(self, channel):
-        """Lists users nicks in channel. 
+        """Lists users nicks in channel.
+
         Also check bot.channel_names for a non sanitized version(like starting with ~ & % @ + for operators, moderators, etc; if you want to detect them)
 
         :param channel:str channel name
         """
         # await self._send_data(f"NAMES {channel}")
         # await self.sleep(2)
-        special_symbols = ["~", "&", "%", "@", "+",]
+        special_symbols = [
+            "~",
+            "&",
+            "%",
+            "@",
+            "+",
+        ]
         names = self.channel_names[channel]
-        names = [name[1:] if any([name.startswith(s) for s in special_symbols]) else name for name in names]
+        names = [
+            name[1:] if any([name.startswith(s) for s in special_symbols]) else name
+            for name in names
+        ]
         return names
 
     async def send_message(self, message, channel=None):
-        """Sends a text message. The message will be enqueued and sent whenever the messaging loop arrives on it.
+        """Sends a text message. The message will be enqueued and sent whenever
+        the messaging loop arrives on it.
 
         :param message: Can be a str, a list of str or a IrcBot.Message object.
         :param channel: Can be a str or a list of str. By default it is all channels the bot constructor receives. Instead of the channel name you can pass in a user nickname to send a private message.
@@ -546,7 +588,7 @@ class IrcBot(object):
 
     async def _send_data(self, data):
         s = self.s
-        debug("Sending: ", data)
+        debug("Sending: ", f"{data=}")
         await trio.sleep(0)
         await s.send_all(data.encode())
 
@@ -587,7 +629,12 @@ class IrcBot(object):
                 async for data in s:
                     data = data.decode("utf-8")
                     debug(
-                        "\nDECODED DATA FROM SERVER: \n", 60 * "-", "\n", data, 60 * "-", "\n"
+                        "\n>>>>DECODED DATA FROM SERVER: \n",
+                        60 * "-",
+                        "\n",
+                        f"{data=}\n",
+                        60 * "-",
+                        "\n",
                     )
                     self.fetch_tables()
                     for msg in data.split("\r\n"):
@@ -618,22 +665,342 @@ class IrcBot(object):
         if self.tables:
             await self.check_tables()
 
+    async def _start_dcc_server(
+        self, server_type: dcc.DccServer, dcc_data, progress_callback=None
+    ):
+        filename = dcc_data["filename"]
+        is_sender = dcc.DccServer.SEND == server_type
+        ip = dcc_data["ip"]
+        port = dcc_data["port"]
+        size = Path(filename).stat().st_size if is_sender else dcc_data["size"]
+        success = False
+
+        async def handler(client_stream):
+            nonlocal success
+            try:
+                s_list = dcc.get_chunk_sizes_list(size, BUFFSIZE)
+                log(f"DCC {'SENDING' if is_sender else 'RECEIVING'} FILE BYTES")
+                total_b = 0
+                last_ = 0
+                has_callback = callable(progress_callback)
+                log(f"{has_callback}")
+
+                async def progress_handler():
+                    nonlocal last_
+                    if not has_callback:
+                        return
+                    # TODO maybe there is a better way than just call progress on each 1% ?
+                    current_progress = ceil(total_b / size * 100)
+                    if current_progress <= last_:
+                        return
+                    last_ = current_progress
+                    await progress_callback(self, total_b / size)
+
+                with open(filename, "rb") if is_sender else open(filename, "wb") as f:
+                    with trio.CancelScope() as cancel_scope:
+                        self._dcc_busy_ports[port]["scopes"].append(cancel_scope)
+                        cancel_scope.shield = True
+                        if is_sender:
+                            for i, bsize in enumerate(s_list):
+                                await client_stream.send_all(f.read(bsize))
+                                total_b += bsize
+                                await progress_handler()
+
+                        else:
+                            while total_b < size:
+                                bytes_read = await client_stream.receive_some()
+                                if not bytes_read:
+                                    break
+                                f.write(bytes_read)
+                                total_b += len(bytes_read)
+                                await progress_handler()
+
+                await client_stream.aclose()
+                success = True
+                if has_callback:
+                    await progress_callback(self, 1)
+                dcc_scope.cancel()
+            except trio.BrokenResourceError:
+                log("DCC SEND BrokenResourceError")
+            except BrokenPipeError:
+                log("DCC SEND BrokenPipeError")
+            except ConnectionResetError:
+                log("DCC SEND ConnectionResetError")
+            log("DCC SEND FINISHED")
+
+        with trio.move_on_after(120) as dcc_scope:
+            self._dcc_busy_ports[port] = {
+                "scopes": [dcc_scope],
+                **dcc_data,
+                "type": server_type,
+            }
+            async with trio.open_nursery() as nursery:
+                await nursery.start(partial(trio.serve_tcp, host=ip), handler, port)
+        log(f"Finished dcc server with {success=}")
+        return success
+
+    def _dcc_get_available_port(self, take_port=True):
+        for pt in self.dcc_ports:
+            if pt not in self._dcc_busy_ports and dcc.is_port_available(
+                self.dcc_host, pt
+            ):
+                if take_port:
+                    self._dcc_busy_ports[pt] = None
+                return pt
+
+    def _dcc_free_port(self, port):
+        if port in self._dcc_busy_ports:
+            return self._dcc_busy_ports.pop(port)
+
+    async def dcc_send(self, nick, filename, port=None, progress_callback=None):
+        """Starts the tcp server for sending a file and sends the ctcp message
+        to nick.
+
+        :param nick: Nick to offer the file to
+        :type str:
+        :param filename: File absolute path
+        :type str:
+        :param port: Port to use or 0 to let the kernel pick an open port. Default will choose the first available port in dcc_ports.
+        :type int:
+        :param progress_callback: async function to be called after each 1 % of data is sent. Must accept the bot and float that indicates the transfer progress.
+        """
+        if port is None:
+            port = self._dcc_get_available_port()
+        if port is None:
+            log("ERROR! No ports available for dcc!")
+            await self.dcc_reject(dcc.DccServer.GET, nick, filename)
+            raise BaseException("No available ports for dcc send")
+
+        size = Path(filename).stat().st_size
+        message = {
+            "nick": nick,
+            "filename": filename,
+            "ip": self.dcc_host,
+            "port": port,
+            "size": size,
+        }
+        await self._dcc_send(message)
+        if not await self._start_dcc_server(
+            dcc.DccServer.SEND, message, progress_callback
+        ):
+            await self.dcc_reject(dcc.DccServer.GET, nick, filename)
+        self._dcc_free_port(port)
+
+    async def dcc_get(self, download_path, m, progress_callback=None):
+        """Downloads file being offered by a nick using the dcc protocol.
+        Supports passive protocol.
+
+        :param download_path: Path to download file into
+        :type download_path: str
+        :param m: match from custom_handler('dccsend') or dcc.DccHelper instance
+        :type Union(DccHelper, dict):
+        :param progress_callback: async function to be called after each 1 % of data is sent. Must accept the bot and float that indicates the transfer progress.
+        :returns bool: Indicating download success or failure
+        """
+        helper = None
+        if isinstance(m, dcc.DccHelper):
+            message = m.to_message()
+            helper = m
+        else:
+            message = m
+            helper = dcc.DccHelper(**m)
+
+        # DCC PASSIVE GET SERVER
+        if helper.is_passive:
+            ip = self.dcc_host
+            port = self._dcc_get_available_port()
+            log(f"{message.get('nick')=}")
+            message.update({"ip": ip, "port": port})
+            if port is None:
+                log("ERROR! No ports available for dcc!")
+                await self.dcc_reject(dcc.DccServer.SEND, m=message)
+                return
+            await self._dcc_send(message)
+            m.update({"filename": download_path})
+            if not await self._start_dcc_server(
+                dcc.DccServer.GET, message, progress_callback
+            ):
+                await self.dcc_reject(dcc.DccServer.GET, m=message)
+            self._dcc_free_port(port)
+            return True
+
+        # DCC GET CLIENT
+        try:
+            s = await trio.open_tcp_stream(message["ip"], message["port"])
+        except:
+            return
+        total_b = 0
+        size = message["size"]
+        last_ = 0
+        log("DCC GET CLIENT")
+        log(f"downloading {size} bytes")
+        with open(download_path, "wb") as f:
+            try:
+                async for data in s:
+                    total_b += len(data)
+                    f.write(data)
+
+                    # TODO maybe there is a better way than just call progress on each 1% ?
+                    if total_b >= size:
+                        break
+                    current_progress = ceil(total_b / size * 100)
+                    if current_progress <= last_:
+                        continue
+                    last_ = current_progress
+                    if callable(progress_callback):
+                        await progress_callback(self, total_b / size)
+
+                log("DCC GET FINISHED")
+                await s.aclose()
+                if callable(progress_callback):
+                    await progress_callback(self, 1)
+
+            except trio.BrokenResourceError:
+                log("DCC SEND BrokenResourceError")
+                return
+            except BrokenPipeError:
+                log("DCC SEND BrokenPipeError")
+                return
+            except ConnectionResetError:
+                log("DCC SEND ConnectionResetError")
+                return
+
+        return True
+
+    async def dcc_reject(
+        self, dcc_type: dcc.DccServer, nick=None, filename=None, m=None
+    ):
+        """Sends a DCC REJECT to nick for the offered filename or receiving
+        filename.
+
+        :param dcc_type: wither DccServer.GET or DccServer.SEND
+        :type dcc_type: dcc.DccServer
+        :param nick: Nick of the user.
+        :type nick: str
+        :param filename: File Name
+        :type filename: str
+        :param m: Match dictionary from e.g. custom_handler("dccsend")
+        """
+        if [nick, filename] == [None, None] and m is None:
+            raise BaseException("Must pass Either nick and filename or m")
+        if [nick, filename] == [None, None]:
+            nick = m["nick"]
+            filename = m["filename"]
+
+        await self.send_raw(
+            f"NOTICE {nick} :\x01DCC REJECT {dcc_type.name} {Path(filename).name}\x01\r\n"
+        )
+
+    async def _dcc_send(self, message):
+        await self.send_raw(
+            f'PRIVMSG {message["nick"]} :\x01DCC SEND {Path(message["filename"]).name} {dcc.ip_quad_to_num(message["ip"])} {message["port"]} {message["size"]}{" " + str(message["token"]) if message.get("token") else ""}\x01\r\n'
+        )
+
+    def _wait_msg_key(self, type, nick):
+        if nick is None:
+            nick = "#"
+        return f"{type}_#{nick}#"
+
+    async def wait_for(self, type: str, from_nick: str = None, timeout: int = None):
+        """Will wait for a response of type check custom handler types from
+        nick. Will return the message dict.
+
+        :param type: Message type (dccsend, dccreject, privmsg, ping, channel, names)
+        :type type: str
+        :param from_nick: Optional nick to match from
+        :type from_nick: str
+        :param timeout: Seconds to timeout and return None. Defaults to None.
+        :type timeout: int
+        :return dict:
+        """
+
+        key = self._wait_msg_key(type, from_nick)
+        self._awaiting_messages[key] = {}
+
+        async def await_message():
+            while True:
+                await trio.sleep(0.2)
+                if self._awaiting_messages[key]:
+                    break
+
+        if timeout:
+            with trio.move_on_after(timeout):
+                await await_message()
+        else:
+            await await_message()
+
+        message = self._awaiting_messages.pop(key)
+        return message
+
     async def data_handler(self, s, data):
         nick = self.nick
         host = self.host
         self.connected = True
 
         IRC_P = {
+            # DCC
+            r"^:(\S+)!.*\s+PRIVMSG\s+"
+            + self.nick
+            + r"\s+:"
+            + "\x01"
+            + r"DCC\s+"
+            + r"SEND\s+(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+            + "\x01"
+            + r"\s*$": lambda g: {
+                "type": "dccsend",
+                "nick": g[1],
+                "filename": g[2],
+                "ip": dcc.ip_num_to_quad(g[3]),
+                "port": int(g[4]),
+                "size": int(g[5]),
+                "token": int(g[6]),
+            },
+            r"^:(\S+)!.*\s+NOTICE\s+"
+            + self.nick
+            + r"\s+:"
+            + "\x01"
+            + r"DCC\s+"
+            + r"REJECT\s+(\S+)\s+(\S+)\s*"
+            + "\x01"
+            + r"\s*$": lambda g: {
+                "type": "dccreject",
+                "nick": g[1],
+                "reject": g[2],
+                "filename": g[3],
+            },
+            r"^:(\S+)!.*\s+PRIVMSG\s+"
+            + self.nick
+            + r"\s+:"
+            + "\x01"
+            + r"DCC\s+"
+            + r"SEND\s+(\S+)\s+(\d+)\s+(\d+)\s+(\d+)"
+            + "\x01"
+            + r"\s*$": lambda g: {
+                "type": "dccsend",
+                "nick": g[1],
+                "filename": g[2],
+                "ip": dcc.ip_num_to_quad(g[3]),
+                "port": int(g[4]),
+                "size": int(g[5]),
+                "token": None,
+            },
+            # IRC
             r"^:(.*)!.*PRIVMSG (\S+) :(.*)$": lambda g: {
                 "type": "privmsg",
                 "nick": g.group(1),
                 "channel": g.group(2),
                 "text": g.group(3),
             },
+            r"^:(.*)!.*NOTICE (\S+) :(\S+) (.*)$": lambda g: {
+                "type": "notice",
+                "nick": g.group(1),
+                "channel": g.group(2),
+                "notice": g.group(3),
+                "text": g.group(4),
+            },
             r"^\s*PING \s*"
             + self.nick
             + r"\s*$": lambda g: {"type": "ping", "ping": self.nick},
-
             r"^:\S* 353 "
             + self.nick
             + r" = (\S+) :(.*)\s*$": lambda g: {
@@ -689,61 +1056,87 @@ class IrcBot(object):
                 break
 
         if message:
-            if message['type'] in self.custom_handlers:
+            debug(f"{message['type']=}")
+            if message["type"] in self.custom_handlers:
                 m_copy = copy(message)
-                m_copy.pop('type')
-                result = await self._call_cb(self.custom_handlers[message['type']], **m_copy)
+                m_copy.pop("type")
+                result = await self._call_cb(
+                    self.custom_handlers[message["type"]], **m_copy
+                )
                 if result:
                     await self.send_message(result)
 
-            if message['type'] == 'names':
-                self.channel_names[message['channel']] = message['names']
+            if self._awaiting_messages.get(
+                self._wait_msg_key(message["type"], message.get("nick"))
+            ) is not None:
+                debug(f"Found match for awaiting message {message=}")
+                self._awaiting_messages[
+                    self._wait_msg_key(message["type"], message.get("nick"))
+                ] = message
+
+            if message["type"] == "dccreject":
+                items = self._dcc_busy_ports.items()
+                free_ports = []
+                for port, dcc_data in items:
+                    if (
+                        message["nick"] == dcc_data["nick"]
+                        and message["filename"] == Path(dcc_data["filename"]).name
+                        and message["reject"] == dcc_data["type"].name
+                    ):
+                        log(f"DCC REJECT: canceling f{dcc_data=}")
+                        free_ports.append(port)
+                        for scope in dcc_data["scopes"][::-1]:
+                            scope.cancel()
+                for port in free_ports:
+                    dcc_data = self._dcc_free_port(port)
+
+            if message["type"] == "names":
+                self.channel_names[message["channel"]] = message["names"]
                 return
 
-            if message['type'] == 'nickchange':
+            if message["type"] == "nickchange":
                 for channel in self.channel_names:
-                    if message['nick'] in self.channel_names[channel]:
-                        self.channel_names[channel].remove(message['nick'])
-                    if message['nickchange'] not in self.channel_names[channel]:
-                        self.channel_names[channel].append(message['nickchange'])
+                    if message["nick"] in self.channel_names[channel]:
+                        self.channel_names[channel].remove(message["nick"])
+                    if message["nickchange"] not in self.channel_names[channel]:
+                        self.channel_names[channel].append(message["nickchange"])
 
-            if message['type'] == 'join':
-                if not message['channel'] in self.channel_names:
-                    self.channel_names[message['channel']] = []
-                if not message['nick'] in self.channel_names[message['channel']]:
-                    self.channel_names[message['channel']].append(message['nick'])
+            if message["type"] == "join":
+                if not message["channel"] in self.channel_names:
+                    self.channel_names[message["channel"]] = []
+                if not message["nick"] in self.channel_names[message["channel"]]:
+                    self.channel_names[message["channel"]].append(message["nick"])
                 return
 
-            if message['type'] == 'part':
-                if not message['channel'] in self.channel_names:
-                    self.channel_names[message['channel']] = []
-                if message['nick'] in self.channel_names[message['channel']]:
-                    self.channel_names[message['channel']].remove(message['nick'])
+            if message["type"] == "part":
+                if not message["channel"] in self.channel_names:
+                    self.channel_names[message["channel"]] = []
+                if message["nick"] in self.channel_names[message["channel"]]:
+                    self.channel_names[message["channel"]].remove(message["nick"])
                 return
 
-            if message['type'] == 'quit':
+            if message["type"] == "quit":
                 for chan in self.channel_names:
-                    if message['nick'] in self.channel_names[chan]:
-                        self.channel_names[chan].remove(message['nick'])
+                    if message["nick"] in self.channel_names[chan]:
+                        self.channel_names[chan].remove(message["nick"])
                 return
 
-            if message['type'] == 'channel':
-                self.server_channels[message['channel']] = message['chandescription']
+            if message["type"] == "channel":
+                self.server_channels[message["channel"]] = message["chandescription"]
                 return
-
 
         if len(data) <= 1:
             return
         debug("processing -> ", data)
         try:
-            # TODO clear this mess 
+            # TODO clear this mess
             # This is for replying to users's ping requests
             if (
                 data.find("PING") != -1
                 and len(data.split(":")) >= 3
                 and "PING" in data.split(":")[2]
-                and message['type'] == 'privmsg'
-                and message['channel'] == self.nick
+                and message["type"] == "privmsg"
+                and message["channel"] == self.nick
             ):
                 msg = str("PONG " + data.split(":")[1].split("!~")[0] + "\r\n")
                 debug("ponging: ", msg)
@@ -759,11 +1152,11 @@ class IrcBot(object):
                     )
                     # await s.send_all(msg.encode())
                     await self._enqueue_message(msg)
-                    debug("Sending privmsg: " + msg)
+                    debug(f"Sending privmsg: {msg=}")
                 log("PONG sent \n")
                 return
 
-            if message and message['type'] == 'ping':
+            if message and message["type"] == "ping":
                 msg = str("PONG " + host + "\r\n")
                 debug("ponging: ", msg)
                 # await s.send_all(msg.encode())
@@ -778,13 +1171,12 @@ class IrcBot(object):
                     if match[1] in self.accept_join_from:
                         await self.join(match[3])
 
-
-                if message is None or  message['type'] != 'privmsg':
-                    debug("Ignoring: " + data)
+                if message is None or message["type"] != "privmsg":
+                    debug("Regex command parser Ignoring: " + data)
                     return
 
-                channel = message['channel']
-                sender_nick = message['nick']
+                channel = message["channel"]
+                sender_nick = message["nick"]
                 if sender_nick.startswith("@"):
                     sender_nick = sender_nick[1:]
                 debug("sent by:", sender_nick)
@@ -813,7 +1205,11 @@ class IrcBot(object):
                     await self.process_result(result, channel, sender_nick, is_private)
                     return
 
-                for i, cmd in enumerate(utils.regex_commands[::-1] if not utils.parse_order else utils.regex_commands):
+                for i, cmd in enumerate(
+                    utils.regex_commands[::-1]
+                    if not utils.parse_order
+                    else utils.regex_commands
+                ):
                     if matched:
                         break
                     for reg in cmd:
@@ -831,7 +1227,11 @@ class IrcBot(object):
                                 matched = True
                                 continue
 
-                for i, cmd in enumerate(utils.regex_commands_with_message[::-1] if not utils.parse_order else utils.regex_commands_with_message):
+                for i, cmd in enumerate(
+                    utils.regex_commands_with_message[::-1]
+                    if not utils.parse_order
+                    else utils.regex_commands_with_message
+                ):
                     if matched:
                         break
                     for reg in cmd:
@@ -851,14 +1251,26 @@ class IrcBot(object):
                                     result = await self._call_cb(
                                         cmd[reg],
                                         m,
-                                        Message(channel, sender_nick, msg, is_private, strip=self.strip_messages),
+                                        Message(
+                                            channel,
+                                            sender_nick,
+                                            msg,
+                                            is_private,
+                                            strip=self.strip_messages,
+                                        ),
                                     )
                                 else:
                                     await trio.sleep(0)
                                     result = await self._call_cb(
                                         cmd[reg],
                                         m,
-                                        Message(channel, sender_nick, msg, is_private, strip=self.strip_messages),
+                                        Message(
+                                            channel,
+                                            sender_nick,
+                                            msg,
+                                            is_private,
+                                            strip=self.strip_messages,
+                                        ),
                                     )
 
                             if result:

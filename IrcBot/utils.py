@@ -1,14 +1,16 @@
-#TODO make a class instead of this globals crap 
+# TODO make a class instead of this globals crap
 
 import collections
 import logging
 import re
+import struct
 import sys
 from functools import wraps
 
 has_validators = False
 try:
     import validators
+
     has_validators = True
 except:
     pass
@@ -77,6 +79,8 @@ def regex_cmd_with_messsage(filters, acccept_pms=True, pass_data=False, **kwargs
 
 
 url_commands = []
+
+
 def url_handler(**kwargs):
     """url_handler. The function should take a string that is the matched url.
 
@@ -93,9 +97,14 @@ def url_handler(**kwargs):
 
     return wrap_cmd
 
+
 custom_handlers = {}
+
+
 def custom_handler(action, **kwargs):
-    """custom_handler. Add handlers for other user actions like join, quit, part..
+    """custom_handler. Add handlers for other user actions like join, quit,
+    part..
+
     :param action: str or list of strings with one or more of the possible actions
         Possible actions and function necessary arguments are:
         type             kwargs
@@ -106,7 +115,7 @@ def custom_handler(action, **kwargs):
         'join' -> {'nick', 'channel'}
         'quit' -> {'nick', 'text'}
         'part' -> {'nick', 'channel'}
-
+        'dccsend' -> {'nick', 'filename', 'ip', 'port', 'size'}
     """
 
     def wrap_cmd(func):
@@ -124,7 +133,6 @@ def custom_handler(action, **kwargs):
     return wrap_cmd
 
 
-
 command_prefix = "!"
 _command_max_arguments = 10
 _NonSpace = r"\S"
@@ -140,6 +148,7 @@ re_command = (
 arg_commands_with_message = {}
 
 simplify_arg_commands = True
+
 
 def setSimplifyCommands(simplify):
     global simplify_arg_commands
@@ -166,6 +175,7 @@ def arg_command(
 
     if simplify is None:
         simplify = simplify_arg_commands
+
     def wrap_cmd(func):
         @wraps(func)
         def wrapped(*a, **bb):
@@ -184,13 +194,17 @@ def arg_command(
     return wrap_cmd
 
 
+help_msg_header = []
 help_msg = {}
+help_msg_bottom = []
 commands_help = {}
 help_menu_separator = "\n"
 help_on_private = False
 
+
 def setHelpMenuSeparator(sep: str):
-    """Sets the separator string between the help commands. If can contain a '\n'
+    """Sets the separator string between the help commands. If can contain a
+    '\n'.
 
     :param sep: separator
     :type sep: str
@@ -198,9 +212,10 @@ def setHelpMenuSeparator(sep: str):
     global help_menu_separator
     help_menu_separator = sep
 
+
 def setHelpOnPrivate(is_private):
-    """Defines if the help messages should be sent as private messages.
-    This is useful to avoide flooding if the bots has many commands.
+    """Defines if the help messages should be sent as private messages. This is
+    useful to avoide flooding if the bots has many commands.
 
     :param is_private: if true they will be private (default False: display on the current channel)
     """
@@ -208,17 +223,50 @@ def setHelpOnPrivate(is_private):
     help_on_private = is_private
 
 
+def setHelpHeader(txt: str):
+    """Adds some text to the help message before the command descriptions.
+
+    :param txt: Text to display before command descriptions
+    :type txt: str
+    """
+    global help_msg_header
+    if isinstance(txt, str):
+        help_msg_header = [txt]
+    elif isinstance(txt, list):
+        help_msg_header = txt
+    else:
+        raise BaseException("You must pass wither a list of strings or a string")
+
+
+def setHelpBottom(txt: str):
+    """Adds some text to the help message after the command descriptions.
+
+    :param txt: Text to display after command descriptions
+    :type txt: str
+    """
+    global help_msg_bottom
+    if isinstance(txt, str):
+        help_msg_bottom = [txt]
+    elif isinstance(txt, list):
+        help_msg_bottom = txt
+    else:
+        raise BaseException("You must pass wither a list of strings or a string")
+
+
 def _reg_word(org, pref):
     opt_open = r"(?:"
     opt_close = r")?"
     return (
         re.escape(pref)
-        + opt_open * (len([re.escape(c) for c in org[len(pref) :]]) > 0)
-        + opt_open.join([re.escape(c) for c in org[len(pref) :]])
-        + opt_close * len(org[len(pref) :])
+        + opt_open * (len([re.escape(c) for c in org[len(pref):]]) > 0)
+        + opt_open.join([re.escape(c) for c in org[len(pref):]])
+        + opt_close * len(org[len(pref):])
     )
 
+
 _defined_command_dict = {}
+
+
 def setCommands(command_dict: dict, simplify=None, prefix="!"):
     """Defines commands for the bot from existing functions
     param: command_dict: Takes a dictionary of "command names": function's to call creating the commands for each of them.
@@ -270,8 +318,8 @@ def setCommands(command_dict: dict, simplify=None, prefix="!"):
         if isinstance(cb, dict):
             re_command(
                 expression,
-                acccept_pms=True if not "acccept_pms" in cb else cb["acccept_pms"],
-                pass_data=False if not "pass_data" in cb else cb["pass_data"],
+                acccept_pms=True if "acccept_pms" not in cb else cb["acccept_pms"],
+                pass_data=False if "pass_data" not in cb else cb["pass_data"],
             )(cb["function"])
             help_msg[cmd] = (
                 f"{command_prefix}{cmd}: {cb['help']}" if "help" in cb else ""
@@ -305,37 +353,52 @@ def setCommands(command_dict: dict, simplify=None, prefix="!"):
                 return Message(channel, message=commands_help[args[1]])
             if help_msg:
                 if "\n" in help_menu_separator:
-                    after = help_menu_separator.split("\n")[0]
-                    before = help_menu_separator.split("\n")[-1]
-                    return [Message(channel, message=before + txt + after) for txt in help_msg.values()]
+                    before = help_menu_separator.split("\n")[0]
+                    after = help_menu_separator.split("\n")[-1]
+                    txt = list(help_msg.values())[0]
+                    return (
+                        help_msg_header
+                        + [
+                            Message(channel, message=after + txt + before)
+                            for txt in help_msg.values()
+                        ]
+                        + help_msg_bottom
+                    )
                 else:
-                    return help_menu_separator.join(help_msg.values())
+                    return (
+                        help_menu_separator.join(help_msg_header)
+                        + help_menu_separator.join(help_msg.values())
+                        + help_menu_separator.join(help_msg_bottom)
+                    )
 
         re_command(_reg_word("help", _commands["help"]))(help_menu)
 
 
 def setPrefix(prefix):
-    """setPrefix. Sets the prefix for arg commands
+    """setPrefix. Sets the prefix for arg commands.
 
     :param prefix: str prefix for commands
     """
     global command_prefix
     command_prefix = prefix
 
-def setParseOrderTopBottom(top_bottom:bool = True):
+
+def setParseOrderTopBottom(top_bottom: bool = True):
     """setParseOrder.
+
     :param top_bottom: bool -> if True then first defined regex expressions will overwrite last ones. Default is False
     """
     global parse_order
     parse_order = top_bottom
 
+
 def setMaxArguments(n):
     """setMaxArguments.
+
     :param n: number of arguments for callbacks in arg_command decorator
     """
     global command_max_arguments
     command_max_arguments = n
-
 
 
 # LOGGING SETUP
@@ -379,13 +442,14 @@ def warning(*args, level=logging.WARNING):
     logger.log(level, msg)
 
 
-
 # Extras
 def validateUrl(url):
     if has_validators:
         return validators.url(url)
     else:
-        log("You do not have the validators module installed! run `pip install validators` to use this functionality")
+        log(
+            "You do not have the validators module installed! run `pip install validators` to use this functionality"
+        )
 
 
 def m2list(args):
