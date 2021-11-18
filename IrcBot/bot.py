@@ -19,10 +19,11 @@ import re
 import socket
 from copy import copy, deepcopy
 from functools import partial
-from math import ceil, floor
+from math import ceil
 from pathlib import Path
 
 import trio
+from cachetools import TTLCache
 
 from IrcBot import dcc, utils
 from IrcBot.message import Message, ReplyIntent
@@ -292,8 +293,10 @@ class IrcBot(object):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             self.dcc_host = s.getsockname()[0]
+
             s.close()
-        self._awaiting_messages = {}
+
+        self._awaiting_messages = TTLCache(maxsize=8192, ttl=10)
 
         self.connected = False
         self.server_channels = {}
@@ -629,7 +632,7 @@ class IrcBot(object):
                 async for data in s:
                     data = data.decode("utf-8")
                     debug(
-                        "\n>>>>DECODED DATA FROM SERVER: \n",
+                        "\n>>>> DECODED DATA FROM SERVER: \n",
                         60 * "-",
                         "\n",
                         f"{data=}\n",
@@ -901,7 +904,7 @@ class IrcBot(object):
             nick = "#"
         return f"{type}_#{nick}#"
 
-    async def wait_for(self, type: str, from_nick: str = None, timeout: int = None):
+    async def wait_for(self, type: str, from_nick: str = None, timeout: int = None, filter_func=None):
         """Will wait for a response of type check custom handler types from
         nick. Will return the message dict.
 
@@ -909,19 +912,35 @@ class IrcBot(object):
         :type type: str
         :param from_nick: Optional nick to match from
         :type from_nick: str
-        :param timeout: Seconds to timeout and return None. Defaults to None.
+        :param timeout: Seconds to timeout and return None. Defaults to wait forever. It is very recommendable to pass a number to this even if high.
         :type timeout: int
+        :param key: Function to filter on taking the message as argument and return bool
+        :type callable:
         :return dict:
         """
 
         key = self._wait_msg_key(type, from_nick)
+        debug(f"{(self._awaiting_messages[key] if key in self._awaiting_messages else None )=}")
+        if key in self._awaiting_messages and self._awaiting_messages[key].get('type'):
+            if callable(filter_func):
+                if filter_func(self._awaiting_messages[key]):
+                    debug(f"WAIT FOR: using cached result for {from_nick}")
+                    return self._awaiting_messages[key]
+            else:
+                debug(f"WAIT FOR: using cached result for {from_nick}")
+                return self._awaiting_messages[key]
+
         self._awaiting_messages[key] = {}
 
         async def await_message():
             while True:
                 await trio.sleep(0.2)
                 if self._awaiting_messages[key]:
-                    break
+                    if callable(filter_func):
+                        if filter_func(self._awaiting_messages[key]):
+                            break
+                    else:
+                        break
 
         if timeout:
             with trio.move_on_after(timeout):
@@ -929,9 +948,11 @@ class IrcBot(object):
         else:
             await await_message()
 
-        message = self._awaiting_messages.pop(key)
-        return message
+        return self._awaiting_messages[key]
 
+
+
+    # MAIN DATA RECEIVING
     async def data_handler(self, s, data):
         nick = self.nick
         host = self.host
@@ -1066,9 +1087,12 @@ class IrcBot(object):
                 if result:
                     await self.send_message(result)
 
-            if self._awaiting_messages.get(
-                self._wait_msg_key(message["type"], message.get("nick"))
-            ) is not None:
+            if (
+                self._awaiting_messages.get(
+                    self._wait_msg_key(message["type"], message.get("nick"))
+                )
+                is not None
+            ):
                 debug(f"Found match for awaiting message {message=}")
                 self._awaiting_messages[
                     self._wait_msg_key(message["type"], message.get("nick"))
