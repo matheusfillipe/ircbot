@@ -1237,7 +1237,7 @@ class IrcBot(object):
                     if matched:
                         break
                     for reg in cmd:
-                        m = re.match(reg, msg)  # , flags=re.IGNORECASE)
+                        m = re.match(reg, msg)
                         if m:
                             if cmd in utils.regex_commands:
                                 if is_private and not utils.regex_commands_accept_pm[i]:
