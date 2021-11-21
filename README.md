@@ -1,4 +1,4 @@
-# Simple IRC Bot Library
+# re-ircbot, a simple irc bot library
 
 * [What is this?](#what-is-this?)
 * [How to install](#how-to-install)
@@ -240,27 +240,32 @@ Don't know how to use re match objects? convert it to a list with: `utils.m2list
 
 To add a color with a string use `color.str + another_string`
 
-Q. Why aren't my regex expressions being matched?
+Q. **Why aren't my regex expressions being matched?**
+
 The regex commands you defined last will be matched first. That said, check up
 the documentation for python's re module. Also notice that regex expressions do
 not work for utils.arg_command or using setCommands, they commands will be
 escaped by re.escape.
 
-Q. Can I use async functions on my callbacks?
+Q. **Can I use async functions on my callbacks?**
+
 Yes, you can use any of the decorators with async functions as well
 
-Q. What happens if i send colored messages?
+Q. **What happens if i send colored messages?**
+
 Currently they will be simply treated as normal text. This bot does not care
 about user input colors but it can still send colored messages.
 
-Q. Why my async callback doesn't work? (or how does it even work)
+Q. **Why my async callback doesn't work? (or how does it even work)**
+
 Compared to non async callback functions, if you try to use an async callback
 like in one of util's wrappers, you will need to pass an extra argument in the
 first position that is 'bot', an IrcBot object which represents the current
 bot. With this you can use IrcBot's methods within a callback function like for
 a command or custom_handler.
 
-Q. How can I add actions for user, join, part etc.
+Q. **How can I add actions for user, join, part etc.**
+
 Take a look at the utils.custom_handler decorator.
 
 
