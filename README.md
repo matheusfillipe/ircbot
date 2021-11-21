@@ -10,6 +10,7 @@
   * [Data permanency](#data-permanency)
   * [Wait for user response](#wait-for-user-response)
   * [Run independently of user input](#run-independently-of-user-input)
+  * [wait_for (event)](# wait_for-(event))
 * [Tips and tricks (logging, async, etc)](#tips-and-tricks-(logging,-async,-etc))
 * [FAQ](#faq)
 * [ROADMAP](#roadmap)
@@ -143,6 +144,66 @@ bot.runWithCallback(mainLoop)
 ```
 Take a look at the patternSpam.py example for more details.
 
+### wait_for (event)
+
+You can also use async handlers to await for user input using the bot's method `wait_for`. Here is an example to check and await for user's input:
+
+```python
+async def ask(
+    bot: IrcBot,
+    nick: str,
+    question: str,
+    expected_input=None,
+    repeat_question=None,
+    loop: bool = True,
+    timeout_message: str = "Response timeout!",
+):
+    await bot.send_message(question, nick)
+    resp = await bot.wait_for("privmsg", nick, timeout=10)
+    while loop:
+        if resp:
+            if expected_input is None or resp.get("text").strip() in expected_input:
+                break
+            await bot.send_message(repeat_question if repeat_question else question, nick)
+        else:
+            await bot.send_message(timeout_message, nick)
+        resp = await bot.wait_for("privmsg", nick, timeout=600)
+    return resp.get('text').strip() if resp else None
+
+
+@utils.arg_command("test")
+async def test(bot: IrcBot, args, msg):
+    nick = msg.nick
+    resp = await ask(bot, msg.nick, f"{nick}: say yes/no", ["yes", "no"], repeat_question="You must reply with yes or no")
+    return f"Your answer is: '{resp}'"
+
+```
+
+Notice that awaiting for `resp = await bot.wait_for("privmsg", nick, timeout=10)` will pause the execution until either a matching event from `nick` of type `privmsg` (which means both channel messages or DM's) arrives or the timeout happens. 
+
+Here is another example of using wait_for to detect if a user is identified with the nickserv:
+
+``` python
+async def is_identified(bot: IrcBot, nick):
+    global nick_cache
+    nickserv = "NickServ"
+    await bot.send_message(f"status {nick}", nickserv)
+    msg = await bot.wait_for(
+        "notice",
+        nickserv,
+        timeout=5,
+        cache_ttl=60,
+        # We need filter because multiple notices from nickserv can come at the same time
+        # if multiple requests are being made to this function all together
+        filter_func=lambda m: nick in m["text"],
+    )
+    return msg.get("text").strip() == f"{nick} 3 {nick}" if msg else False
+```
+
+Here we used a lower timeout because nickserv should reply faster than any user, the `cache_ttl` option will keep results cached for the given time, and `filter_func` must be a callable to be ran against any matched event (even if it is a cached result). The event will be only considered valid `if filter_func` (is True).
+
+
+
 ## Tips and tricks (logging, async, etc)
 
 First of all: currently it is only possible to have one bot only per python call. This means you should define only one bot per file.
@@ -172,6 +233,7 @@ def echo(msg):
 def include(m, message):
     return ReplyIntent(Message(channel=message.sender_nick, sender_nick=message.sender_nick, message="Hello! echo mode activated"), echo)
 ```
+
 ## FAQ
 
 Don't know how to use re match objects? convert it to a list with: `utils.m2list(args)`
@@ -206,7 +268,8 @@ Take a look at the utils.custom_handler decorator.
 
 For version 2.0:
 
-1. SASL AUTHENTICATION
-2. ~~Handle weird character's on input (Colors, fonts, underlines, glyphs etc)~~
-3. Convert utils to an actual class that can be used as a context
+1. [] SASL AUTHENTICATION
+2. [x] Handle weird character's on input (Colors, fonts, underlines, glyphs etc)
+3. [] Convert utils to an actual class that can be used as a context
+4. [x] Dcc file transfer
 
