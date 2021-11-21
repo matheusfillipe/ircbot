@@ -10,7 +10,7 @@
   * [Data permanency](#data-permanency)
   * [Wait for user response](#wait-for-user-response)
   * [Run independently of user input](#run-independently-of-user-input)
-  * [wait_for (event)](#wait_for-(event))
+  * [wait_for (event)](#wait_for-event)
 * [Tips and tricks (logging, async, etc)](#tips-and-tricks-(logging,-async,-etc))
 * [FAQ](#faq)
 * [ROADMAP](#roadmap)
