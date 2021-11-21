@@ -934,7 +934,7 @@ class IrcBot(object):
         # Format: self._awaiting_messages[key][idx] --> {message: msg, info: ...}
         use_cache = cache_ttl and cache_ttl > 0
         key = self._wait_msg_key(type, from_nick)
-        idx = random.randint(0, 1000000) if not use_cache else "cache"
+        idx = random.randint(0, 1000000)
         if (
             use_cache
             and key in self._awaiting_messages
