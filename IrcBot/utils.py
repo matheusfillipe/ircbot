@@ -133,6 +133,7 @@ def custom_handler(action, **kwargs):
     return wrap_cmd
 
 
+single_match = False
 command_prefix = "!"
 _command_max_arguments = 10
 _NonSpace = r"\S"
@@ -382,6 +383,13 @@ def setPrefix(prefix):
     global command_prefix
     command_prefix = prefix
 
+def setSingleMatch(singleMatch: bool):
+    """Defines if there will be only one command handler called. If false all regex and arg_commands will be matched against the user input.
+    :param singleMatch: If true there will be only one match per command. Defaults to False (all matches will be called)
+    :type singleMatch: bool
+    """
+    global single_match
+    single_match = singleMatch
 
 def setParseOrderTopBottom(top_bottom: bool = True):
     """setParseOrder.

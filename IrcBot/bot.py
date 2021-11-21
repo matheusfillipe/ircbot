@@ -296,7 +296,7 @@ class IrcBot(object):
 
             s.close()
 
-        self._awaiting_messages = TTLCache(maxsize=8192, ttl=10)
+        self._awaiting_messages = {}
 
         self.connected = False
         self.server_channels = {}
@@ -904,7 +904,17 @@ class IrcBot(object):
             nick = "#"
         return f"{type}_#{nick}#"
 
-    async def wait_for(self, type: str, from_nick: str = None, timeout: int = None, filter_func=None):
+    def jls_extract_def(self, wait_for):
+        return wait_for
+
+    async def wait_for(
+        self,
+        type: str,
+        from_nick: str = None,
+        timeout: int = 0,
+        cache_ttl: int = 0,
+        filter_func=None,
+    ) -> dict:
         """Will wait for a response of type check custom handler types from
         nick. Will return the message dict.
 
@@ -914,45 +924,67 @@ class IrcBot(object):
         :type from_nick: str
         :param timeout: Seconds to timeout and return None. Defaults to wait forever. It is very recommendable to pass a number to this even if high.
         :type timeout: int
-        :param key: Function to filter on taking the message as argument and return bool
+        :param cache_ttl: if <= 0 will not cache the result, if > 0 will be the time in seconds to cache the result for the specified request.
+        :type int:
+        :param filter_func: Function to filter on taking the message as argument and return bool. Must be non async.
         :type callable:
-        :return dict:
+        :return dict: Empty dict if timeout occurs
         """
 
+        # Format: self._awaiting_messages[key][idx] --> {message: msg, info: ...}
+        use_cache = cache_ttl and cache_ttl > 0
         key = self._wait_msg_key(type, from_nick)
-        debug(f"{(self._awaiting_messages[key] if key in self._awaiting_messages else None )=}")
-        if key in self._awaiting_messages and self._awaiting_messages[key].get('type'):
-            if callable(filter_func):
-                if filter_func(self._awaiting_messages[key]):
-                    debug(f"WAIT FOR: using cached result for {from_nick}")
-                    return self._awaiting_messages[key]
+        idx = random.randint(0, 1000000) if not use_cache else "cache"
+        if (
+            use_cache
+            and key in self._awaiting_messages
+            and idx in self._awaiting_messages
+            and self._awaiting_messages[key][idx]["message"].get("type")
+        ):
+            if callable(filter_func) and filter_func(self._awaiting_messages[key]):
+                debug(f"WAIT FOR: using cached result for {from_nick}")
+                return self._awaiting_messages[key][idx]["message"]
             else:
                 debug(f"WAIT FOR: using cached result for {from_nick}")
-                return self._awaiting_messages[key]
+                return self._awaiting_messages[key][idx]["message"]
 
-        self._awaiting_messages[key] = {}
+        if key not in self._awaiting_messages:
+            self._awaiting_messages[key] = {}
+        if use_cache:
+            log("WAIT FOR: creating cache for {key=}")
+            self._awaiting_messages[key][idx] = TTLCache(
+                maxsize=8192, ttl=cache_ttl
+            )
+        else:
+            self._awaiting_messages[key][idx] = {}
+        self._awaiting_messages[key][idx]["message"] = {}
+        self._awaiting_messages[key][idx]["filter_func"] = filter_func
+        self._awaiting_messages[key][idx]["type"] = type
+        self._awaiting_messages[key][idx]["timeout"] = timeout
+        self._awaiting_messages[key][idx]["nick"] = from_nick
+        self._awaiting_messages[key][idx]["cache_ttl"] = cache_ttl
+        send_stream, receive_stream = trio.open_memory_channel(0)
+        self._awaiting_messages[key][idx]["send_stream"] = send_stream
 
         async def await_message():
-            while True:
-                await trio.sleep(0.2)
-                if self._awaiting_messages[key]:
-                    if callable(filter_func):
-                        if filter_func(self._awaiting_messages[key]):
-                            break
-                    else:
-                        break
+            async for msg in receive_stream:
+                break
+            await send_stream.aclose()
+            await receive_stream.aclose()
+            self._awaiting_messages[key][idx]["message"] = msg
 
-        if timeout:
+        if timeout and timeout > 0:
             with trio.move_on_after(timeout):
                 await await_message()
         else:
             await await_message()
 
-        return self._awaiting_messages[key]
+        msg = self._awaiting_messages[key][idx]
+        if not use_cache:
+            self._awaiting_messages[key].pop(idx)
+        return msg["message"]
 
-
-
-    # MAIN DATA RECEIVING
+    # MAIN DATA RECEIVING HANDLER
     async def data_handler(self, s, data):
         nick = self.nick
         host = self.host
@@ -1087,16 +1119,25 @@ class IrcBot(object):
                 if result:
                     await self.send_message(result)
 
-            if (
-                self._awaiting_messages.get(
-                    self._wait_msg_key(message["type"], message.get("nick"))
-                )
-                is not None
-            ):
-                debug(f"Found match for awaiting message {message=}")
-                self._awaiting_messages[
-                    self._wait_msg_key(message["type"], message.get("nick"))
-                ] = message
+            akey = self._wait_msg_key(message["type"], message.get("nick"))
+            if self._awaiting_messages.get(akey) is not None:
+                for idx in self._awaiting_messages[akey]:
+                    filter_func = self._awaiting_messages[akey][idx]["filter_func"]
+                    try:
+                        if callable(filter_func) and not filter_func(message):
+                            continue
+                    except Exception as e:
+                        log(f"ATTENTION! Error in wait_for -> your {filter_func=} failed with {str(e)}")
+                        continue
+                    debug(
+                        f"Found match for awaiting message {idx=} {self._awaiting_messages[akey][idx]=}"
+                    )
+                    debug(f"{message=}")
+                    try:
+                        await self._awaiting_messages[akey][idx]["send_stream"].send(message)
+                    except trio.ClosedResourceError:
+                        continue
+                    return
 
             if message["type"] == "dccreject":
                 items = self._dcc_busy_ports.items()
@@ -1249,7 +1290,15 @@ class IrcBot(object):
                                     result, channel, sender_nick, is_private
                                 )
                                 matched = True
-                                continue
+                            if utils.single_match:
+                                matched = True
+                                break
+
+
+    
+                if matched and utils.single_match:
+                    await self.check_tables()
+                    return
 
                 for i, cmd in enumerate(
                     utils.regex_commands_with_message[::-1]
@@ -1302,7 +1351,14 @@ class IrcBot(object):
                                     result, channel, sender_nick, is_private
                                 )
                                 matched = True
-                                continue
+                            if utils.single_match:
+                                debug("BREAKING")
+                                matched = True
+                                break
+
+                if matched and utils.single_match:
+                    await self.check_tables()
+                    return
 
                 for word in msg.split(" "):
                     if len(word) < 6:
