@@ -10,7 +10,7 @@
   * [Data permanency](#data-permanency)
   * [Wait for user response](#wait-for-user-response)
   * [Run independently of user input](#run-independently-of-user-input)
-  * [wait_for (event)](# wait_for-(event))
+  * [wait_for (event)](#wait_for-(event))
 * [Tips and tricks (logging, async, etc)](#tips-and-tricks-(logging,-async,-etc))
 * [FAQ](#faq)
 * [ROADMAP](#roadmap)
@@ -268,8 +268,8 @@ Take a look at the utils.custom_handler decorator.
 
 For version 2.0:
 
-1. [] SASL AUTHENTICATION
+1. [ ] SASL AUTHENTICATION
 2. [x] Handle weird character's on input (Colors, fonts, underlines, glyphs etc)
-3. [] Convert utils to an actual class that can be used as a context
+3. [ ] Convert utils to an actual class that can be used as a context
 4. [x] Dcc file transfer
 
