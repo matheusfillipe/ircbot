@@ -89,7 +89,7 @@ class ConfigOptions(Enum):
     QUOTA = auto()
 
 
-table_columns = [f.name for f in ConfigOptions]
+table_columns = [f.name.lower() for f in ConfigOptions]
 configs = persistentData(NICK + ".db", "users", table_columns)
 
 
@@ -104,7 +104,7 @@ class Config:
 
     def save(self):
         for user in configs.data:
-            if self.nick == user[ConfigOptions.NICK.name]:
+            if self.nick == user[ConfigOptions.NICK.name.lower()]:
                 configs.update(user["id"], self.asdict())
                 return
         log(f"Creating new config for user: {self.nick}")
@@ -118,7 +118,7 @@ class Config:
     def get_existing(cls, nick: str) -> Config:
         nick = nick.strip()
         for user in configs.data:
-            if nick == user[ConfigOptions.NICK.name]:
+            if nick == user[ConfigOptions.NICK.name.lower()]:
                 return Config.from_dict(user)
 
     @classmethod
@@ -128,7 +128,7 @@ class Config:
     @classmethod
     def get(cls, nick: str) -> Config:
         for user in configs.data:
-            if nick == user[ConfigOptions.NICK.name]:
+            if nick == user[ConfigOptions.NICK.name.lower()]:
                 return Config.from_dict(user)
         config = cls(nick)
         config.save()
