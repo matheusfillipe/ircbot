@@ -507,6 +507,8 @@ class IrcBot(object):
         :param data:
         :type data: str
         """
+        if not data.endswith("\r\n"):
+            data += "\r\n"
         await self._enqueue_message(data)
 
     async def join(self, channel):

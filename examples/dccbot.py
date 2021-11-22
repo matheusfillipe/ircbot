@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from functools import wraps
 from pathlib import Path
+from time import time
+from typing import Tuple
 
 import requests
 from cachetools import TTLCache
@@ -92,12 +94,12 @@ class Folder:
 
 
 class ConfigOptions(Enum):
-    NICK = auto()
-    DISPLAY_PROGRESS = auto()
-    QUOTA = auto()
+    nick = auto()
+    display_progress = auto()
+    quota = auto()
 
 
-table_columns = [f.name.lower() for f in ConfigOptions]
+table_columns = [f.name for f in ConfigOptions]
 configs = persistentData(NICK + ".db", "users", table_columns)
 
 
@@ -110,11 +112,14 @@ class Config:
     def asdict(self) -> dict:
         return asdict(self)
 
+    @classmethod
+    def _get_data_by_nick(cls, nick):
+        return configs.db.getByKeyWithId(ConfigOptions.nick.name, nick)
+
     def save(self):
-        for user in configs.data:
-            if self.nick == user[ConfigOptions.NICK.name.lower()]:
-                configs.update(user["id"], self.asdict())
-                return
+        if user := self._get_data_by_nick(self.nick):
+            configs.update(user["id"], self.asdict())
+            return
         log(f"Creating new config for user: {self.nick}")
         debug(f"{self.asdict()=}")
         configs.push(self.asdict())
@@ -125,9 +130,8 @@ class Config:
     @classmethod
     def get_existing(cls, nick: str) -> Config:
         nick = nick.strip()
-        for user in configs.data:
-            if nick == user[ConfigOptions.NICK.name.lower()]:
-                return Config.from_dict(user)
+        if user := cls._get_data_by_nick(nick):
+            return Config.from_dict(user)
 
     @classmethod
     def from_dict(cls, d: dict) -> Config:
@@ -135,9 +139,8 @@ class Config:
 
     @classmethod
     def get(cls, nick: str) -> Config:
-        for user in configs.data:
-            if nick == user[ConfigOptions.NICK.name.lower()]:
-                return Config.from_dict(user)
+        if user := cls._get_data_by_nick(nick):
+            return Config.from_dict(user)
         config = cls(nick)
         config.save()
         return config
@@ -230,6 +233,37 @@ def requires_ident():
     return wrapper
 
 
+async def send_file(bot: IrcBot, nick: str, file: Path):
+    notify_each_b = progress_curve(file.stat().st_size)
+    config = Config.get(nick)
+
+    async def progress_handler(p, message):
+        if not config.display_progress:
+            return
+        percentile = int(p * 100)
+        if percentile % notify_each_b == 0:
+            await bot.send_message(message % percentile, nick)
+
+    await bot.send_message(f"Type '/dcc get FileServ {file.name}' to download it", nick)
+    await bot.dcc_send(
+        nick,
+        str(file),
+        progress_callback=lambda _, p: progress_handler(
+            p, f"DOWNLOAD {file.name} %s%%"
+        ),
+    )
+    await bot.send_message("Submission of {file.name} was completed", nick)
+
+
+def check_nick_has_file(nick: str, filename: str) -> Tuple[str, Path]:
+    if not filename:
+        return "You must pass a filename. Check 'list'", None
+    folder = Folder(nick)
+    if not folder.exists(filename):
+        return f"This file doesn't exist ({filename}). Check 'list'", None
+    return None, folder.path(filename)
+
+
 # COMMANDS
 
 
@@ -244,7 +278,7 @@ async def info(bot: IrcBot, args, msg: Message):
     return reply(
         msg,
         [
-            f"{k}: {v} {'MB' if ConfigOptions.QUOTA.name.lower() == k else ''}"
+            f"{k}: {v} {'MB' if ConfigOptions.quota.name == k else ''}"
             for k, v in Config.get(msg.nick).asdict().items()
         ]
         + [f"usage: {Folder(msg.nick).size()} MB"],
@@ -272,7 +306,7 @@ async def quota(bot: IrcBot, args, msg: Message):
 
 @utils.arg_command("list", "List files you uploaded or received", CMD_HELP % "list")
 @requires_ident()
-def listdir(args, msg: Message):
+async def listdir(bot: IrcBot, args, msg: Message):
     files = [f"{p.name} -- {p.stat().st_size}" for p in Folder(msg.nick).list()]
     if files:
         return reply(msg, files)
@@ -284,26 +318,48 @@ def listdir(args, msg: Message):
 )
 @requires_ident()
 async def delete(bot: IrcBot, args, msg):
-    if not args[1]:
-        return "You must pass a filename. Check 'list'"
-    file = args[1]
-    folder = Folder(msg.nick)
-    if not folder.exists(file):
-        return f"This file doesn't exist ({file}). Check 'list'"
-    resp = ask(bot, msg.nick, f"Are you sure you want to remove {file} (y/n)?", expected_input=['y', 'n'], repeat_question="Please type 'y' or 'n'")
-    if resp == 'y':
+    error, file = check_nick_has_file(msg.nick, args[1])
+    if error:
+        return error
+    resp = ask(
+        bot,
+        msg.nick,
+        f"Are you sure you want to remove {file.name} (y/n)?",
+        expected_input=["y", "n"],
+        repeat_question="Please type 'y' or 'n'",
+    )
+    if resp == "y":
         return "Aborting"
-    folder.path(file).unlink()
+    file.unlink()
     return f"{file} removed!"
 
 
 @utils.arg_command(
-    "send", "Sends a file of your folder to some user", CMD_HELP % "send [filename]"
+    "send",
+    "Sends a file of your folder to some user",
+    CMD_HELP % "send [filename] [nick]",
 )
 @requires_ident()
 async def send(bot: IrcBot, args, msg):
-    # TODO display progress of sending file back to me
-    pass
+    error, file = check_nick_has_file(msg.nick, args[1])
+    if error:
+        return error
+    if not args[2]:
+        return "Please enter with a nick to send the file to"
+
+    # Check if nick is on the network and measure ping
+    nick = args[2]
+    now = time()
+    await bot.send_raw(f"PING {nick}")
+    notice = bot.wait_for(
+        "notice", from_nick=nick, timeout=5, filter_func=lambda m: "PING" in m["text"]
+    )
+    ping = round(now - time(), 4)
+    if not notice:
+        return f"The nick {nick} is not available or timed out"
+
+    await bot.send_message(f"Sending {file.name} to {nick}. Ping: {ping}s", msg.nick)
+    await send_file(bot, msg.nick, file)
 
 
 @utils.arg_command(
@@ -311,33 +367,10 @@ async def send(bot: IrcBot, args, msg):
 )
 @requires_ident()
 async def get(bot: IrcBot, args, msg):
-    if not args[1]:
-        return "You must pass a filename. Check 'list'"
-    sendfile = args[1]
-    folder = Folder(msg.nick)
-    if not folder.exists(sendfile):
-        return f"This file doesn't exist ({sendfile}). Check 'list'"
-    notify_each_b = progress_curve(Path(sendfile).stat().st_size)
-    config = Config.get(msg.nick)
-
-    async def progress_handler(p, message):
-        if not config.display_progress:
-            return
-        percentile = int(p * 100)
-        if percentile % notify_each_b == 0:
-            await bot.send_message(message % percentile, msg.nick)
-
-    await bot.send_message(
-        "Type '/dcc get FileServ {sendfile}' to download it", msg.nick
-    )
-    await bot.dcc_send(
-        msg.nick,
-        str(folder.path(sendfile)),
-        progress_callback=lambda _, p: progress_handler(
-            p, f"DOWNLOAD {Path(sendfile).name} %s%%"
-        ),
-    )
-    await bot.send_message("Transmissiong of {sendfile} was completed", msg.nick)
+    error, file = check_nick_has_file(msg.nick, args[1])
+    if error:
+        return error
+    await send_file(bot, msg.nick, file)
 
 
 @utils.arg_command(
@@ -373,13 +406,10 @@ async def imgur(bot: IrcBot, args, msg):
 )
 @requires_ident()
 async def paste(bot: IrcBot, args, msg):
-    if not args[1]:
-        return "You must pass a filename. Check 'list'"
-    file = args[1]
-    folder = Folder(msg.nick)
-    if not folder.exists(file):
-        return f"This file doesn't exist ({file}). Check 'list'"
-    return f"{transfersh_upload(str(folder.path(file)))}"
+    error, file = check_nick_has_file(msg.nick, args[1])
+    if error:
+        return error
+    return transfersh_upload(str(file))
 
 
 @utils.regex_cmd_with_messsage(r"\S+")
@@ -421,7 +451,7 @@ async def on_dcc_send(bot: IrcBot, **m):
         return
     path = folder.download_path(m["filename"])
     await bot.dcc_get(
-        path,
+        str(path),
         m,
         progress_callback=lambda _, p: progress_handler(
             p, f"UPLOAD {Path(m['filename']).name} %s%%"

@@ -107,7 +107,6 @@ class DB:
 
     def newData(self, data_):
         # assert len(data_)==len(self.rowLabels), "ERRO: O data_ deve ter o tamanho " + str(len(self.rowLabels))
-        print(f"DB - CREATE {data_=}")
         self._connect()
         self._saveData(data_)
         id = copy(self.cursor.lastrowid)
@@ -160,6 +159,28 @@ class DB:
         ]
         self._close()
         return data_s
+
+    def _getByKey(self, key: str, value: any):
+        if key not in self.rowLabels:
+            raise BaseException("Invalid Key!")
+        self._connect()
+        # self.connection.set_trace_callback(print)
+        cursor = self.cursor.execute(
+            "SELECT * FROM " + self.tableName + " WHERE " + key + " = ?",
+            (value,),
+        )
+        # self.connection.set_trace_callback(None)
+        data = cursor.fetchone()
+        self._close()
+        return data
+
+    def getByKey(self, key: str, value: any):
+        data = self._getByKey(key, value)
+        return self.toDict(list(data)[1:]) if data else None
+
+    def getByKeyWithId(self, key: str, value: any):
+        data = self._getByKey(key, value)
+        return self.toDictWithId(data) if data else None
 
     def findData(self, key, nome):
         func = str
