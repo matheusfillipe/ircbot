@@ -87,7 +87,7 @@ class DB():
             return
         self.close()
 
-    def _daveData(self, data_):
+    def _saveData(self, data_):
         data_ = self.toList(data_)
         self.cursor.execute("INSERT INTO "+self.tableName+" ("+str(self.rowLabels)[
                             1:-1] + ")VALUES (" + (len(self.rowLabels)*"?,")[:-1]+")", data_)
@@ -95,14 +95,14 @@ class DB():
     def newData(self, data_):
         # assert len(data_)==len(self.rowLabels), "ERRO: O data_ deve ter o tamanho " + str(len(self.rowLabels))
         self._connect()
-        self._daveData(data_)
+        self._saveData(data_)
         id = copy(self.cursor.lastrowid)
         self._close()
         return id
 
     def saveDataList(self, lista):
         self._connect()
-        [self._daveData(data_) for data_ in lista]
+        [self._saveData(data_) for data_ in lista]
         self._close()
 
     def _getData(self, id):
