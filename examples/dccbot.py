@@ -79,8 +79,16 @@ class Folder:
     def list(self) -> iter:
         return sorted(self.folder.iterdir(), key=os.path.getmtime)
 
-    def exists(self, filename):
+    def exists(self, filename: str) -> bool:
         return Path(str(self.folder) + f"/{filename}").is_file()
+
+    def path(self, filename: str) -> Path:
+        return Path(str(self.folder) + f"/{filename}")
+
+    def download_path(self, filename: str) -> str:
+        if not self.exists(filename):
+            return str(self.folder()) + f"/{filename}"
+        return self.path("_" + filename)
 
 
 class ConfigOptions(Enum):
@@ -135,7 +143,7 @@ class Config:
         return config
 
 
-def transfersh_upload(filepath):
+def transfersh_upload(filepath) -> str:
     url = f"https://transfer.sh/{Path(filepath).name}"
     payload = open(filepath, "rb").read()
     headers = {"Content-Type": "image/jpeg"}
@@ -246,7 +254,8 @@ async def info(bot: IrcBot, args, msg: Message):
 @utils.arg_command(
     "quota", "ADMIN: Sets quota for user", CMD_HELP % "quota [nick] [value]"
 )
-def quota(args, msg: Message):
+@requires_ident()
+async def quota(bot: IrcBot, args, msg: Message):
     if not is_admin(msg):
         return "You cannot use this command"
     if not args[1]:
@@ -262,6 +271,7 @@ def quota(args, msg: Message):
 
 
 @utils.arg_command("list", "List files you uploaded or received", CMD_HELP % "list")
+@requires_ident()
 def listdir(args, msg: Message):
     files = [f"{p.name} -- {p.stat().st_size}" for p in Folder(msg.nick).list()]
     if files:
@@ -269,23 +279,65 @@ def listdir(args, msg: Message):
     return reply(msg, "You don't have any file yet")
 
 
-@utils.arg_command("status", "Check if nick is identified", CMD_HELP % "list")
-async def status(bot: IrcBot, args, msg: Message):
-    return reply(msg, f"{args[1]} -> {await is_identified(bot, args[1])}")
-
-
 @utils.arg_command(
     "delete", "Removes a file from your folder", CMD_HELP % "delete [filename]"
 )
+@requires_ident()
 async def delete(bot: IrcBot, args, msg):
-    pass
+    if not args[1]:
+        return "You must pass a filename. Check 'list'"
+    file = args[1]
+    folder = Folder(msg.nick)
+    if not folder.exists(file):
+        return f"This file doesn't exist ({file}). Check 'list'"
+    resp = ask(bot, msg.nick, f"Are you sure you want to remove {file} (y/n)?", expected_input=['y', 'n'], repeat_question="Please type 'y' or 'n'")
+    if resp == 'y':
+        return "Aborting"
+    folder.path(file).unlink()
+    return f"{file} removed!"
 
 
 @utils.arg_command(
     "send", "Sends a file of your folder to some user", CMD_HELP % "send [filename]"
 )
+@requires_ident()
 async def send(bot: IrcBot, args, msg):
+    # TODO display progress of sending file back to me
     pass
+
+
+@utils.arg_command(
+    "get", "Receives a file from your folder", CMD_HELP % "get [filename]"
+)
+@requires_ident()
+async def get(bot: IrcBot, args, msg):
+    if not args[1]:
+        return "You must pass a filename. Check 'list'"
+    sendfile = args[1]
+    folder = Folder(msg.nick)
+    if not folder.exists(sendfile):
+        return f"This file doesn't exist ({sendfile}). Check 'list'"
+    notify_each_b = progress_curve(Path(sendfile).stat().st_size)
+    config = Config.get(msg.nick)
+
+    async def progress_handler(p, message):
+        if not config.display_progress:
+            return
+        percentile = int(p * 100)
+        if percentile % notify_each_b == 0:
+            await bot.send_message(message % percentile, msg.nick)
+
+    await bot.send_message(
+        "Type '/dcc get FileServ {sendfile}' to download it", msg.nick
+    )
+    await bot.dcc_send(
+        msg.nick,
+        str(folder.path(sendfile)),
+        progress_callback=lambda _, p: progress_handler(
+            p, f"DOWNLOAD {Path(sendfile).name} %s%%"
+        ),
+    )
+    await bot.send_message("Transmissiong of {sendfile} was completed", msg.nick)
 
 
 @utils.arg_command(
@@ -293,46 +345,81 @@ async def send(bot: IrcBot, args, msg):
     "Change the behaviour of the file upload/download progress messages",
     CMD_HELP % "noprog",
 )
+@requires_ident()
 async def noprog(bot: IrcBot, args, msg):
-    pass
+    config = Config.get(msg.nick)
+    nick = msg.nick
+    resp = await ask(
+        bot,
+        msg.nick,
+        f"{nick}: Respond with 'd' to disable or 'e' to enable to progress messages",
+        ["d", "e"],
+        repeat_question="You must reply with either e or d",
+    )
+    config.display_progress = resp == "e"
+    config.save()
+    return f"Set progress display to: '{config.display_progress}'"
 
 
 @utils.arg_command("imgur", "Uploads image to imgur", CMD_HELP % "imgur [filename]")
+@requires_ident()
 async def imgur(bot: IrcBot, args, msg):
+    # TODO
     pass
 
 
 @utils.arg_command(
     "paste", "Uploads files to transfer.sh", CMD_HELP % "paste [filename]"
 )
+@requires_ident()
 async def paste(bot: IrcBot, args, msg):
-    pass
+    if not args[1]:
+        return "You must pass a filename. Check 'list'"
+    file = args[1]
+    folder = Folder(msg.nick)
+    if not folder.exists(file):
+        return f"This file doesn't exist ({file}). Check 'list'"
+    return f"{transfersh_upload(str(folder.path(file)))}"
 
 
-@utils.arg_command("test")
-async def test(bot: IrcBot, args, msg):
-    nick = msg.nick
-    resp = await ask(
-        bot,
-        msg.nick,
-        f"{nick}: say yes/no",
-        ["yes", "no"],
-        repeat_question="You must reply with yes or no",
+@utils.regex_cmd_with_messsage(r"\S+")
+@requires_ident()
+async def not_found(bot: IrcBot, m, msg):
+    log(f"{msg.text=}")
+    return reply(
+        msg,
+        f'{red("Unknown command or invalid syntax")}. Try "/msg {NICK} help" for help',
     )
-    return f"Your answer is: '{resp}'"
 
 
 @utils.custom_handler("dccsend")
 async def on_dcc_send(bot: IrcBot, **m):
+    nick = m["nick"]
+    if not await is_identified(bot, nick):
+        return "You cannot use this bot before you register your nick"
 
     notify_each_b = progress_curve(m["size"])
 
+    config = Config.get(nick)
+
     async def progress_handler(p, message):
+        if not config.display_progress:
+            return
         percentile = int(p * 100)
         if percentile % notify_each_b == 0:
             await bot.send_message(message % percentile, m["nick"])
 
-    path = f"/home/matheus/tmp/test_{m['filename']}"
+    folder = Folder(nick)
+    if folder.size() + m["size"] > Config.get_existing(nick):
+        await bot.send_message(
+            Message(
+                m["nick"],
+                message="Your quota has exceeded! Type 'info' to check, 'list' to see your files and 'delete [filename]' to free some space",
+                is_private=True,
+            )
+        )
+        return
+    path = folder.download_path(m["filename"])
     await bot.dcc_get(
         path,
         m,
@@ -346,25 +433,6 @@ async def on_dcc_send(bot: IrcBot, **m):
         )
     )
 
-    sendfile = "/media/matheus/Elements/OS's/debian-sid-hurd-i386-CD-1.iso"
-    notify_each_b = progress_curve(Path(sendfile).stat().st_size)
-    await bot.dcc_send(
-        m["nick"],
-        sendfile,
-        progress_callback=lambda _, p: progress_handler(
-            p, f"DOWNLOAD {Path(sendfile).name} %s%%"
-        ),
-    )
-
-
-@utils.regex_cmd_with_messsage(r"\S+")
-def not_found(m, msg):
-    log(f"{msg.text=}")
-    return reply(
-        msg,
-        f'{red("Unknown command or invalid syntax")}. Try "/msg {NICK} help" for help',
-    )
-
 
 @utils.custom_handler("dccreject")
 def on_dcc_reject(**m):
@@ -372,11 +440,10 @@ def on_dcc_reject(**m):
 
 
 async def on_run(bot: IrcBot):
-    pass
+    log("STARTED!")
 
 
 if __name__ == "__main__":
-    # print(transfersh_upload("/home/matheus/tmp/another.jpg"))
     bot = IrcBot(
         HOST, PORT, NICK, CHANNELS, dcc_host=DCC_HOST, use_ssl=True, tables=[configs]
     )
