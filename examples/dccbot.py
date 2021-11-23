@@ -451,9 +451,9 @@ async def imgur(bot: IrcBot, args, msg):
         error_out()
 
     error, file = check_nick_has_file(msg.nick, args[1])
-    size = file.stat().st_size
     if error:
         return error
+    size = file.stat().st_size
     img_exts = ["JPEG", "PNG", "GIF", "APNG", "TIFF"]
     anim_exts = ["MP4", "MPEG", "AVI", "WEBM"]
     ext = file.suffix.replace(".", "").upper()
