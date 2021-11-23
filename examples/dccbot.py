@@ -392,12 +392,15 @@ async def send(bot: IrcBot, args, msg):
     now = time()
     await bot.send_raw(f"PING {nick}")
     notice = await bot.wait_for(
-        "notice", from_nick=nick, timeout=5, filter_func=lambda m: "PING" in m["text"]
+        "pong",
+        nick,
+        timeout=5,
+        filter_func=lambda m: nick.strip().casefold() == m["nick"].strip().casefold(),
     )
-    ping = round(now - time(), 4)
     if not notice:
         return f"The nick {nick} is not available or timed out"
 
+    ping = round(- now + time(), 4)
     await bot.send_message(f"Sending {file.name} to {nick}. Ping: {ping}s", msg.nick)
     await send_file(bot, nick, file)
 
