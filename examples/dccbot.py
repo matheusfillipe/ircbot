@@ -289,7 +289,7 @@ async def info(bot: IrcBot, args, msg: Message):
             f"{k}: {v} {'MB' if ConfigOptions.quota.name == k else ''}"
             for k, v in Config.get(msg.nick).asdict().items()
         ]
-        + [f"usage: {Folder(msg.nick).size()} MB"],
+        + [f"usage: {round(Folder(msg.nick).size() / 1048576, 2)} MB"],
     )
 
 
@@ -391,7 +391,7 @@ async def send(bot: IrcBot, args, msg):
     nick = args[2]
     now = time()
     await bot.send_raw(f"PING {nick}")
-    notice = bot.wait_for(
+    notice = await bot.wait_for(
         "notice", from_nick=nick, timeout=5, filter_func=lambda m: "PING" in m["text"]
     )
     ping = round(now - time(), 4)
@@ -399,7 +399,7 @@ async def send(bot: IrcBot, args, msg):
         return f"The nick {nick} is not available or timed out"
 
     await bot.send_message(f"Sending {file.name} to {nick}. Ping: {ping}s", msg.nick)
-    await send_file(bot, msg.nick, file)
+    await send_file(bot, nick, file)
 
 
 @utils.arg_command(
