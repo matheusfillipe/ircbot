@@ -1065,6 +1065,8 @@ class IrcBot(object):
             r"^\s*PING \s*"
             + self.nick
             + r"\s*$": lambda g: {"type": "ping", "ping": self.nick},
+            r"^:\S+\s+PONG\s+\S+\s+:(\S+).*$":
+                lambda g: {"type": "pong", "nick": g[1]},
             r"^:\S* 353 "
             + self.nick
             + r" = (\S+) :(.*)\s*$": lambda g: {
@@ -1130,9 +1132,10 @@ class IrcBot(object):
                 if result:
                     await self.send_message(result)
 
+            # Match wait_for
             akey = self._wait_msg_key(message["type"], message.get("nick"))
+            debug(f"{self._awaiting_messages=}")
             if self._awaiting_messages.get(akey) is not None:
-                debug(f"{self._awaiting_messages[akey]=}")
                 for idx in self._awaiting_messages[akey]:
                     if idx == "cache":
                         continue
