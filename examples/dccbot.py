@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from functools import wraps
 from pathlib import Path
+from random import randint
 from time import time
 from typing import Tuple
 
@@ -390,17 +391,20 @@ async def send(bot: IrcBot, args, msg):
     # Check if nick is on the network and measure ping
     nick = args[2]
     now = time()
-    await bot.send_raw(f"PING {nick}")
+
+    # CTCP PING
+    cookie = str(randint(100000, 999999))
+    await bot.send_raw(f"PRIVMSG {nick} :\x01PING {int(now)} {cookie}\x01")
     notice = await bot.wait_for(
-        "pong",
+        "notice",
         nick,
         timeout=5,
-        filter_func=lambda m: nick.strip().casefold() == m["nick"].strip().casefold(),
+        filter_func=lambda m: cookie in m['text']
     )
     if not notice:
         return f"The nick {nick} is not available or timed out"
 
-    ping = round(- now + time(), 4)
+    ping = round(-now + time(), 4)
     await bot.send_message(f"Sending {file.name} to {nick}. Ping: {ping}s", msg.nick)
     await send_file(bot, nick, file)
 
