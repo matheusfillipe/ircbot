@@ -266,21 +266,35 @@ async def send_file(bot: IrcBot, nick: str, file: Path):
     await bot.send_message("Submission of {file.name} was completed", nick)
 
 
-async def check_nick_has_file(bot: IrcBot, nick: str, filename: str) -> Tuple[str, Path]:
+async def check_nick_has_file(
+    bot: IrcBot, nick: str, filename: str
+) -> Tuple[str, Path]:
     if not filename:
         return "You must pass a filename or a pattern to search for. Check 'list'", None
     folder = Folder(nick)
     if not folder.exists(filename):
         await bot.send_message(f"Searching exact matches for '{filename}':", nick)
         n_res = 6
-        res = [f for f in folder.list() if filename.strip().casefold() in f.name.strip().casefold()]
+        res = [
+            f
+            for f in folder.list()
+            if filename.strip().casefold() in f.name.strip().casefold()
+        ]
         res.reverse()
         if not res:
             return f"This file doesn't exist ({filename}). Check 'list'", None
         for i, f in enumerate(res[:n_res]):
-            await bot.send_message(f"{i + 1}) {f.name} -- {round(f.stat().st_size / 1048576, 2)}MB", nick)
-        n = await ask(bot, nick, "Choose one file (c to cancel): ", [str(n) for n in range(1, len(res) + 1)] + ['c'], f"Please enter with a number from 1 to {len(res)} or c to cancel")
-        if n is None or n == 'c':
+            await bot.send_message(
+                f"{i + 1}) {f.name} -- {round(f.stat().st_size / 1048576, 2)}MB", nick
+            )
+        n = await ask(
+            bot,
+            nick,
+            "Choose one file (c to cancel): ",
+            [str(n) for n in range(1, len(res) + 1)] + ["c"],
+            f"Please enter with a number from 1 to {len(res)} or c to cancel",
+        )
+        if n is None or n == "c":
             return "Canceling file search.", None
         filename = res[int(n) - 1].name
     return None, folder.path(filename)
@@ -413,15 +427,12 @@ async def send(bot: IrcBot, args, msg):
     cookie = str(randint(100000, 999999))
     await bot.send_raw(f"PRIVMSG {nick} :\x01PING {int(now)} {cookie}\x01")
     notice = await bot.wait_for(
-        "notice",
-        nick,
-        timeout=5,
-        filter_func=lambda m: cookie in m['text']
+        "notice", nick, timeout=5, filter_func=lambda m: cookie in m["text"]
     )
     if not notice:
         return f"The nick {nick} is not available or timed out"
 
-    ping = round(- now + time(), 4)
+    ping = round(-now + time(), 4)
     error, file = await check_nick_has_file(bot, msg.nick, args[2])
     if error:
         return error
@@ -583,6 +594,13 @@ async def on_run(bot: IrcBot):
 
 if __name__ == "__main__":
     bot = IrcBot(
-        HOST, PORT, NICK, CHANNELS, password=PASSWORD, dcc_host=DCC_HOST, use_ssl=PORT==6697, tables=[configs]
+        HOST,
+        PORT,
+        NICK,
+        CHANNELS,
+        password=PASSWORD,
+        dcc_host=DCC_HOST,
+        use_ssl=PORT == 6697,
+        tables=[configs],
     )
     bot.runWithCallback(on_run)
