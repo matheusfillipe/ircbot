@@ -32,6 +32,7 @@ ADMINS = ["mattf"]
 HOST = "irc.dot.org.es"
 PORT = 6697
 NICK = "FileServ"
+PASSWORD = None
 CHANNELS = None
 PREFIX = ""
 DCC_HOST = "127.0.0.1"
@@ -197,7 +198,7 @@ async def is_identified(bot: IrcBot, nick: str) -> bool:
             cache_ttl=15,
             filter_func=lambda m: nick in m["text"],
         )
-        nick_cache[nick] = TTLCache(128, 60)
+        nick_cache[nick] = TTLCache(128, 10)
         nick_cache[nick]["status"] = msg
     return msg.get("text").strip() == f"{nick} 3 {nick}" if msg else False
 
@@ -279,18 +280,19 @@ def check_nick_has_file(nick: str, filename: str) -> Tuple[str, Path]:
 @utils.arg_command("info", "Shows your personal preferences", CMD_HELP % "info")
 @requires_ident()
 async def info(bot: IrcBot, args, msg: Message):
+    nick = msg.nick
     if is_admin(msg) and args[1]:
         if Config.get_existing(args[1]):
-            msg.nick = args[1]
+            nick = args[1]
         else:
             return f"User not found: {args[1]}"
     return reply(
         msg,
         [
             f"{k}: {v} {'MB' if ConfigOptions.quota.name == k else ''}"
-            for k, v in Config.get(msg.nick).asdict().items()
+            for k, v in Config.get(nick).asdict().items()
         ]
-        + [f"usage: {round(Folder(msg.nick).size() / 1048576, 2)} MB"],
+        + [f"usage: {round(Folder(nick).size() / 1048576, 2)} MB"],
     )
 
 
@@ -316,9 +318,15 @@ async def quota(bot: IrcBot, args, msg: Message):
 @utils.arg_command("list", "List files you uploaded or received", CMD_HELP % "list")
 @requires_ident()
 async def listdir(bot: IrcBot, args, msg: Message):
+    nick = msg.nick
+    if is_admin(msg) and args[1]:
+        if Config.get_existing(args[1]):
+            nick = args[1]
+        else:
+            return f"User not found: {args[1]}"
     files = [
         f"{p.name} -- {round(p.stat().st_size / 1048576, 2)} MB"
-        for p in Folder(msg.nick).list()
+        for p in Folder(nick).list()
     ]
     if files:
         return reply(msg, files)
@@ -404,7 +412,7 @@ async def send(bot: IrcBot, args, msg):
     if not notice:
         return f"The nick {nick} is not available or timed out"
 
-    ping = round(-now + time(), 4)
+    ping = round(- now + time(), 4)
     await bot.send_message(f"Sending {file.name} to {nick}. Ping: {ping}s", msg.nick)
     await send_file(bot, nick, file)
 
@@ -555,10 +563,13 @@ def on_dcc_reject(**m):
 
 async def on_run(bot: IrcBot):
     log("STARTED!")
+    # Startup Setup
+    # await bot.sleep(1)
+    # await bot.send_raw(f"OPER {NICK} {PASSWORD}")
 
 
 if __name__ == "__main__":
     bot = IrcBot(
-        HOST, PORT, NICK, CHANNELS, dcc_host=DCC_HOST, use_ssl=True, tables=[configs]
+        HOST, PORT, NICK, CHANNELS, password=PASSWORD, dcc_host=DCC_HOST, use_ssl=PORT==6697, tables=[configs]
     )
     bot.runWithCallback(on_run)
