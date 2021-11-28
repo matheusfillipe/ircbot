@@ -36,7 +36,7 @@ PASSWORD = None
 CHANNELS = None
 PREFIX = ""
 DCC_HOST = "127.0.0.1"
-STORAGE = "/home/matheus/tmp/trash/"
+STORAGE = "/tmp/trashcan"
 CMD_HELP = f"Syntax: /msg {NICK} %s"
 TIMEOUT = 120
 IMGUR_CLIENT_ID = ""
@@ -226,6 +226,7 @@ async def ask(
             )
         else:
             await bot.send_message(timeout_message, nick)
+            return
         resp = await bot.wait_for("privmsg", nick, timeout=TIMEOUT)
     return resp.get("text").strip() if resp else None
 
@@ -265,12 +266,23 @@ async def send_file(bot: IrcBot, nick: str, file: Path):
     await bot.send_message("Submission of {file.name} was completed", nick)
 
 
-def check_nick_has_file(nick: str, filename: str) -> Tuple[str, Path]:
+async def check_nick_has_file(bot: IrcBot, nick: str, filename: str) -> Tuple[str, Path]:
     if not filename:
-        return "You must pass a filename. Check 'list'", None
+        return "You must pass a filename or a pattern to search for. Check 'list'", None
     folder = Folder(nick)
     if not folder.exists(filename):
-        return f"This file doesn't exist ({filename}). Check 'list'", None
+        await bot.send_message(f"Searching exact matches for '{filename}':", nick)
+        n_res = 6
+        res = [f for f in folder.list() if filename.strip().casefold() in f.name.strip().casefold()]
+        res.reverse()
+        if not res:
+            return f"This file doesn't exist ({filename}). Check 'list'", None
+        for i, f in enumerate(res[:n_res]):
+            await bot.send_message(f"{i + 1}) {f.name} -- {round(f.stat().st_size / 1048576, 2)}MB", nick)
+        n = await ask(bot, nick, "Choose one file (c to cancel): ", [str(n) for n in range(1, len(res) + 1)] + ['c'], f"Please enter with a number from 1 to {len(res)} or c to cancel")
+        if n is None or n == 'c':
+            return "Canceling file search.", None
+        filename = res[int(n) - 1].name
     return None, folder.path(filename)
 
 
@@ -340,7 +352,7 @@ async def listdir(bot: IrcBot, args, msg: Message):
 )
 @requires_ident()
 async def rename(bot: IrcBot, args, msg):
-    error, file = check_nick_has_file(msg.nick, args[1])
+    error, file = await check_nick_has_file(bot, msg.nick, args[1])
     if error:
         return error
     if not args[2]:
@@ -367,7 +379,7 @@ async def rename(bot: IrcBot, args, msg):
 )
 @requires_ident()
 async def delete(bot: IrcBot, args, msg):
-    error, file = check_nick_has_file(msg.nick, args[1])
+    error, file = await check_nick_has_file(bot, msg.nick, args[1])
     if error:
         return error
     resp = await ask(
@@ -380,24 +392,21 @@ async def delete(bot: IrcBot, args, msg):
     if resp == "n":
         return "Aborting"
     file.unlink()
-    return f"{file} removed!"
+    return f"{file.name} removed!"
 
 
 @utils.arg_command(
     "send",
     "Sends a file of your folder to some user",
-    CMD_HELP % "send [filename] [nick]",
+    CMD_HELP % "send [nick] [filename]",
 )
 @requires_ident()
 async def send(bot: IrcBot, args, msg):
-    error, file = check_nick_has_file(msg.nick, args[1])
-    if error:
-        return error
-    if not args[2]:
+    if not args[1]:
         return "Please pass in a nick to send the file to"
 
     # Check if nick is on the network and measure ping
-    nick = args[2]
+    nick = args[1]
     now = time()
 
     # CTCP PING
@@ -413,7 +422,10 @@ async def send(bot: IrcBot, args, msg):
         return f"The nick {nick} is not available or timed out"
 
     ping = round(- now + time(), 4)
-    await bot.send_message(f"Sending {file.name} to {nick}. Ping: {ping}s", msg.nick)
+    error, file = await check_nick_has_file(bot, msg.nick, args[2])
+    if error:
+        return error
+    await bot.send_message(f"Offering {file.name} to {nick}. Ping: {ping}s", msg.nick)
     await send_file(bot, nick, file)
 
 
@@ -422,7 +434,7 @@ async def send(bot: IrcBot, args, msg):
 )
 @requires_ident()
 async def get(bot: IrcBot, args, msg):
-    error, file = check_nick_has_file(msg.nick, args[1])
+    error, file = await check_nick_has_file(bot, msg.nick, args[1])
     if error:
         return error
     await send_file(bot, msg.nick, file)
@@ -465,7 +477,7 @@ async def imgur(bot: IrcBot, args, msg):
     except ModuleNotFoundError:
         error_out()
 
-    error, file = check_nick_has_file(msg.nick, args[1])
+    error, file = await check_nick_has_file(bot, msg.nick, args[1])
     if error:
         return error
     size = file.stat().st_size
@@ -494,7 +506,7 @@ async def imgur(bot: IrcBot, args, msg):
 )
 @requires_ident()
 async def paste(bot: IrcBot, args, msg):
-    error, file = check_nick_has_file(msg.nick, args[1])
+    error, file = await check_nick_has_file(bot, msg.nick, args[1])
     if error:
         return error
     return transfersh_upload(str(file))
@@ -541,6 +553,7 @@ async def on_dcc_send(bot: IrcBot, **m):
             )
         )
         return
+
     path = folder.download_path(m["filename"])
     await bot.dcc_get(
         str(path),
