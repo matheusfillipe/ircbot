@@ -706,7 +706,7 @@ class IrcBot(object):
                         self._dcc_busy_ports[port]["scopes"].append(cancel_scope)
                         cancel_scope.shield = True
                         if is_sender:
-                            for i, bsize in enumerate(s_list):
+                            for bsize in s_list:
                                 await client_stream.send_all(f.read(bsize))
                                 total_b += bsize
                                 await progress_handler()
@@ -720,7 +720,8 @@ class IrcBot(object):
                                 total_b += len(bytes_read)
                                 await progress_handler()
 
-                await client_stream.aclose()
+                await self.sleep(1)
+                # await client_stream.aclose()
                 success = True
                 if has_callback:
                     await progress_callback(self, 1)
@@ -732,6 +733,7 @@ class IrcBot(object):
             except ConnectionResetError:
                 log("DCC SEND ConnectionResetError")
             log("DCC SEND FINISHED")
+            log(f"Sent {total_b} bytes")
 
         with trio.move_on_after(120) as dcc_scope:
             self._dcc_busy_ports[port] = {
@@ -785,11 +787,13 @@ class IrcBot(object):
             "size": size,
         }
         await self._dcc_send(message)
-        if not await self._start_dcc_server(
+        send_result = await self._start_dcc_server(
             dcc.DccServer.SEND, message, progress_callback
-        ):
+        )
+        if not send_result:
             await self.dcc_reject(dcc.DccServer.GET, nick, filename)
         self._dcc_free_port(port)
+        return send_result
 
     async def dcc_get(self, download_path, m, progress_callback=None):
         """Downloads file being offered by a nick using the dcc protocol.
@@ -1065,8 +1069,7 @@ class IrcBot(object):
             r"^\s*PING \s*"
             + self.nick
             + r"\s*$": lambda g: {"type": "ping", "ping": self.nick},
-            r"^:\S+\s+PONG\s+\S+\s+:(\S+).*$":
-                lambda g: {"type": "pong", "nick": g[1]},
+            r"^:\S+\s+PONG\s+\S+\s+:(\S+).*$": lambda g: {"type": "pong", "nick": g[1]},
             r"^:\S* 353 "
             + self.nick
             + r" = (\S+) :(.*)\s*$": lambda g: {
