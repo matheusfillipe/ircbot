@@ -1383,19 +1383,21 @@ class IrcBot(object):
                     await self.check_tables()
                     return
 
-                for word in msg.split(" "):
-                    if len(word) < 6:
-                        continue
-                    result = None
-                    word = word.strip()
-                    if word[-1] in [" ", "?", ",", ";", ":", "\\"]:
-                        word = word[:-1]
-                    if utils.validateUrl(word):
-                        await trio.sleep(0)
-                        debug("Checking url: " + str(word))
-                        result = await self._call_cb(utils.url_commands[-1], word)
-                    if result:
-                        await self.send_message(result, channel)
+                # URL MATCHER
+                if utils.url_commands:
+                    for word in msg.split(" "):
+                        if len(word) < 6:
+                            continue
+                        result = None
+                        word = word.strip()
+                        if word[-1] in [" ", "?", ",", ";", ":", "\\"]:
+                            word = word[:-1]
+                        if utils.validateUrl(word):
+                            await trio.sleep(0)
+                            debug("Checking url: " + str(word))
+                            result = await self._call_cb(utils.url_commands[-1], word)
+                        if result:
+                            await self.send_message(result, channel)
 
             await self.check_tables()
 
