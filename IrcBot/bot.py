@@ -105,7 +105,7 @@ class Color(object):
         ]
 
     def __str__(self):
-        return self.str
+        return self.str + Color.esc
 
 
 class dbOperation(object):
