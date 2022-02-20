@@ -119,7 +119,7 @@ def trans(m, dst, src="auto"):
 def translate(m, message, dst, src="auto"):
     translated_msg = str(trans(m, dst, src))
     if translated_msg and translated_msg != "None":
-        return f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}"
+        return Message(message=f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}", channel=message.channel)
 
 
 @utils.regex_cmd_with_messsage("^@(\S?\S?)\s(.*)$", ACCEPT_PRIVATE_MESSAGES)
@@ -280,6 +280,7 @@ async def process_auto(bot: IrcBot, m, message):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         future_translations = {}
+        # Auto mode
         if message.nick in auto_nicks and message.channel in auto_nicks[message.nick]:
             future_translations.update(
                 {
