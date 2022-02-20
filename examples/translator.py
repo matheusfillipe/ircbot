@@ -1,7 +1,7 @@
 import concurrent.futures
 import logging
-import os
 from copy import deepcopy
+from functools import lru_cache
 
 from IrcBot.bot import Color, IrcBot, Message, ReplyIntent, utils
 from IrcBot.utils import debug, log
@@ -23,6 +23,7 @@ SINGLE_CHAN = True
 CHANNELS = ["#bots"]
 ACCEPT_PRIVATE_MESSAGES = True
 DBFILEPATH = NICK + ".db"
+CACHE_SIZE = 1024
 PROXIES = []
 
 # A maximum of simultaneously auto translations for each users
@@ -83,7 +84,8 @@ for r in INFO_CMDS:
         return INFO_CMDS[regexp]
 
 
-def trans(m, message, dst, src="auto"):
+@lru_cache(maxsize=CACHE_SIZE)
+def trans(m, dst, src="auto"):
     if type(m) != str:
         m = m.group(1)
     logging.info("Translating: " + m)
@@ -115,7 +117,7 @@ def trans(m, message, dst, src="auto"):
 
 
 def translate(m, message, dst, src="auto"):
-    translated_msg = str(trans(m, message, dst, src))
+    translated_msg = str(trans(m, dst, src))
     if translated_msg and translated_msg != "None":
         return f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}"
 
@@ -221,7 +223,7 @@ def babel(m, message):
 
 
 def babel_warning(m, message, babel_nick, dst, src="en"):
-    translated_msg = str(trans(m, message, dst, src))
+    translated_msg = str(trans(m, dst, src))
     if translated_msg and translated_msg != "None":
         return Message(
             message=f"<{babel_nick}> {translated_msg}",
@@ -253,7 +255,7 @@ def colorize(text):
 
 
 def babel_message(m, message, babel_nick, dst, src="en"):
-    translated_msg = str(trans(m, message, dst, src))
+    translated_msg = str(trans(m, dst, src))
     if translated_msg and translated_msg != "None":
         return Message(
             message=f"  \x02({colorize(message.channel)}) <{colorize(message.nick)}>\x02 {translated_msg}",
