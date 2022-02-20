@@ -288,11 +288,10 @@ async def process_auto(bot: IrcBot, m, message):
 
         # Send translations for babel users of this channel
         BABEL_WARN_THRESHOLD = 5
-        for babel_nick in babel_users[message.channel]:
+        for babel_nick in deepcopy(babel_users[message.channel]):
             babel_users[message.channel][babel_nick]["counter"] += 1
             dst = babel_users[message.channel][babel_nick]["dst"]
             if babel_users[channel][babel_nick]["counter"] >= MAX_BABEL_MSG_COUNTER:
-                del babel_users[channel][babel_nick]
                 future_translations.update(
                     {
                         executor.submit(
@@ -305,9 +304,11 @@ async def process_auto(bot: IrcBot, m, message):
                         ): f"babel_over: {m[1]}"
                     }
                 )
+                del babel_users[channel][babel_nick]
+                continue
             elif (
                 babel_users[channel][babel_nick]["counter"]
-                >= MAX_BABEL_MSG_COUNTER - BABEL_WARN_THRESHOLD
+                == MAX_BABEL_MSG_COUNTER - BABEL_WARN_THRESHOLD
             ):
                 future_translations.update(
                     {
