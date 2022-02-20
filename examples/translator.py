@@ -1,3 +1,4 @@
+import concurrent.futures
 import logging
 import os
 from copy import deepcopy
@@ -11,21 +12,22 @@ from IrcBot.utils import debug, log
 
 LOGFILE = None
 LEVEL = logging.DEBUG
-HOST = "irc.server.com"
-PORT = 6665
+HOST = "irc.dot.org.es"
+PORT = 6667
 NICK = "translator"
 PASSWORD = ""
 USERNAME = "translator"
 REALNAME = "simple_bot"
 FREENODE_AUTH = True
 SINGLE_CHAN = True
-CHANNELS = ["#english", "#spanish"]  # , "#lobby",]
+CHANNELS = ["#bots"]
 ACCEPT_PRIVATE_MESSAGES = True
 DBFILEPATH = NICK + ".db"
 PROXIES = []
 
 # A maximum of simultaneously auto translations for each users
 MAX_AUTO_LANGS = 2
+MAX_BABEL_MSG_COUNTER = 20
 
 INFO_CMDS = {
     r"^@linux.*$": "The OS this bot runs on",
@@ -39,10 +41,16 @@ INFO_CMDS = {
         "@auto off [dest_iso_code] Disables automatic translation to the specified target language.",
         "@auto off Clears all rules for automatic translations in the channel.",
     ],
+    "^@help babel.*$": [
+        "@babel [dest_iso_code] You will receve translations of this chat in the specified language as a PM from me.",
+        "@babel off  Disables babel mode.",
+        "Notice that this mode won't last forever, you have to be active on the channel to keep babel mode active.",
+    ],
     "^@help.*": [
         "@: Manually sets the target language for the current line, like so: @es Hello friends. This should translate 'Hello friends' to Spanish. The source language is detected automatically.",
         "Language iso codes: http://ix.io/2HAN, or https://cloud.google.com/translate/docs/languages",
         "@auto: automatically translate everything you send. Use '@help auto' for more info.",
+        "@babel: automatically translate a chat and sends every message to you as a PM. Use '@help babel' for more info.",
     ],
     #    r"^(.*) linux ": "Do you mean the best OS?",
     #    r"^(.*) vim ": "Do you mean the best Text editor???",
@@ -189,14 +197,129 @@ def auto(m, message):
     return f"<{message.nick}> rule added!"
 
 
+babel_users = {}
+
+
+@utils.regex_cmd_with_messsage("^@babel (.*)$", ACCEPT_PRIVATE_MESSAGES)
+def babel(m, message):
+    global babel_users
+    dst = m.group(1).strip()
+    nick = message.sender_nick
+    channel = message.channel
+    if channel not in babel_users:
+        babel_users[channel] = {}
+    if dst == "off":
+        if nick in babel_users[channel]:
+            del babel_users[channel][nick]
+            return f"<{message.nick}> Babel mode disabled"
+        else:
+            return f"<{message.nick}> You do not have babel mode enabled"
+    if dst not in LANGS:
+        return f"<{message.nick}> {dst} is not a valid language code!"
+    babel_users[channel][nick] = {"channel": channel, "dst": dst, "counter": 0}
+    return f"<{message.nick}> Babel mode enabled. You will now receive translations in {dst} as private messages for this channel: {channel}"
+
+
+def babel_warning(m, message, babel_nick, dst, src="en"):
+    translated_msg = str(trans(m, message, dst, src))
+    if translated_msg and translated_msg != "None":
+        return Message(
+            message=f"<{babel_nick}> {translated_msg}",
+            channel=babel_nick,
+            is_private=True,
+        )
+
+
+def babel_message(m, message, babel_nick, dst, src="en"):
+    translated_msg = str(trans(m, message, dst, src))
+    if translated_msg and translated_msg != "None":
+        return Message(
+            message=f"  ({message.channel}) <{message.nick}> {translated_msg}",
+            channel=babel_nick,
+            is_private=True,
+        )
+
+
 @utils.regex_cmd_with_messsage("^(.*)$", ACCEPT_PRIVATE_MESSAGES)
-def process_auto(m, message):
-    if message.nick in auto_nicks and message.channel in auto_nicks[message.nick]:
-        msgs = []
-        for au in auto_nicks[message.nick][message.channel]:
-            print(f"TRANSLATING: {au=}")
-            msgs.append(translate(m, message, au["dst"], au["src"]))
-        return msgs
+async def process_auto(bot: IrcBot, m, message):
+    global babel_users
+    channel = message.channel
+
+    if channel not in babel_users:
+        babel_users[channel] = {}
+
+    # reset babel counter on activity
+    if (
+        message.channel in babel_users or message.channel == NICK
+    ) and message.nick in babel_users[message.channel]:
+        babel_users[message.channel][message.nick]["counter"] = 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_translations = {}
+        if message.nick in auto_nicks and message.channel in auto_nicks[message.nick]:
+            future_translations.update(
+                {
+                    executor.submit(translate, m, message, au["dst"], au["src"]): m[1]
+                    for au in auto_nicks[message.nick][message.channel]
+                }
+            )
+
+        # Send translations for babel users of this channel
+        BABEL_WARN_THRESHOLD = 5
+        for babel_nick in babel_users[message.channel]:
+            babel_users[message.channel][babel_nick]["counter"] += 1
+            dst = babel_users[message.channel][babel_nick]["dst"]
+            if babel_users[channel][babel_nick]["counter"] >= MAX_BABEL_MSG_COUNTER:
+                del babel_users[channel][babel_nick]
+                future_translations.update(
+                    {
+                        executor.submit(
+                            babel_warning,
+                            f"You've been inactive for too long! You will no longer receive translations for {message.channel}",
+                            message,
+                            babel_nick,
+                            dst,
+                            "en",
+                        ): f"babel_over: {m[1]}"
+                    }
+                )
+            elif (
+                babel_users[channel][babel_nick]["counter"]
+                >= MAX_BABEL_MSG_COUNTER - BABEL_WARN_THRESHOLD
+            ):
+                future_translations.update(
+                    {
+                        executor.submit(
+                            babel_warning,
+                            f"You will stop receiving translations for {message.channel} in {BABEL_WARN_THRESHOLD} messages. Say something here or on that channel.",
+                            message,
+                            babel_nick,
+                            dst,
+                            "en",
+                        ): f"babel_warning: {m[1]}"
+                    }
+                )
+
+            future_translations.update(
+                {
+                    executor.submit(
+                        babel_message,
+                        m,
+                        message,
+                        babel_nick,
+                        dst,
+                    ): f"babel_warning: {m[1]}"
+                }
+            )
+
+        for future in concurrent.futures.as_completed(future_translations):
+            text = future_translations[future]
+            try:
+                data = future.result()
+            except Exception as exc:
+                logging.info("%r generated an exception: %s" % (text, exc))
+            else:
+                await bot.send_message(data)
 
 
 if __name__ == "__main__":
