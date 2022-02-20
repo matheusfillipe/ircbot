@@ -3,7 +3,7 @@ import logging
 import os
 from copy import deepcopy
 
-from IrcBot.bot import IrcBot, Message, ReplyIntent, utils
+from IrcBot.bot import Color, IrcBot, Message, ReplyIntent, utils
 from IrcBot.utils import debug, log
 
 ##################################################
@@ -230,11 +230,33 @@ def babel_warning(m, message, babel_nick, dst, src="en"):
         )
 
 
+COLORS = [
+    Color.red,
+    Color.navy,
+    Color.yellow,
+    Color.orange,
+    Color.magenta,
+    Color.maroon,
+    Color.blue,
+    Color.green,
+    Color.purple,
+    Color.light_gray,
+    Color.cyan,
+    Color.light_green,
+    Color.green,
+]
+
+
+def colorize(text):
+    # use hash and colors to colorize text
+    return Color(text, COLORS[hash(text.casefold()) % len(COLORS)]).str + Color.esc
+
+
 def babel_message(m, message, babel_nick, dst, src="en"):
     translated_msg = str(trans(m, message, dst, src))
     if translated_msg and translated_msg != "None":
         return Message(
-            message=f"  ({message.channel}) <{message.nick}> {translated_msg}",
+            message=f"  \x02({colorize(message.channel)}) <{colorize(message.nick)}>\x02 {translated_msg}",
             channel=babel_nick,
             is_private=True,
         )
