@@ -2,6 +2,7 @@ import concurrent.futures
 import logging
 from copy import deepcopy
 from functools import lru_cache
+from hashlib import md5
 
 from IrcBot.bot import Color, IrcBot, Message, ReplyIntent, utils
 from IrcBot.utils import debug, log
@@ -20,10 +21,12 @@ USERNAME = "translator"
 REALNAME = "simple_bot"
 FREENODE_AUTH = True
 SINGLE_CHAN = True
-CHANNELS = ["#bots"]
+CHANNELS = ["#bots", "#romanian"]
 ACCEPT_PRIVATE_MESSAGES = True
 DBFILEPATH = NICK + ".db"
+PROMPT = ">>> "
 CACHE_SIZE = 1024
+WAIT_TIMEOUT = 60
 PROXIES = []
 
 # A maximum of simultaneously auto translations for each users
@@ -52,6 +55,7 @@ INFO_CMDS = {
         "Language iso codes: http://ix.io/2HAN, or https://cloud.google.com/translate/docs/languages",
         "@auto: automatically translate everything you send. Use '@help auto' for more info.",
         "@babel: automatically translate a chat and sends every message to you as a PM. Use '@help babel' for more info.",
+        "@reset: resets your babel preferences",
     ],
     #    r"^(.*) linux ": "Do you mean the best OS?",
     #    r"^(.*) vim ": "Do you mean the best Text editor???",
@@ -100,7 +104,7 @@ def trans(m, dst, src="auto"):
             if src != "auto" and translator.detect(m)[0] != src:
                 return
             msg = translator.translate(m, lang_tgt=dst, lang_src=src)
-            return msg
+            return str(msg)
         except google_trans_new.google_new_transError as e:
             import sys
             import traceback
@@ -117,9 +121,12 @@ def trans(m, dst, src="auto"):
 
 
 def translate(m, message, dst, src="auto"):
-    translated_msg = str(trans(m, dst, src))
-    if translated_msg and translated_msg != "None":
-        return Message(message=f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}", channel=message.channel)
+    translated_msg = trans(m, dst, src)
+    if translated_msg:
+        return Message(
+            message=f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}",
+            channel=message.channel,
+        )
 
 
 @utils.regex_cmd_with_messsage("^@(\S?\S?)\s(.*)$", ACCEPT_PRIVATE_MESSAGES)
@@ -200,11 +207,12 @@ def auto(m, message):
 
 
 babel_users = {}
+babel_prefs = {}
 
 
 @utils.regex_cmd_with_messsage("^@babel (.*)$", ACCEPT_PRIVATE_MESSAGES)
 def babel(m, message):
-    global babel_users
+    global babel_users, babel_prefs
     dst = m.group(1).strip()
     nick = message.sender_nick
     channel = message.channel
@@ -213,18 +221,20 @@ def babel(m, message):
     if dst == "off":
         if nick in babel_users[channel]:
             del babel_users[channel][nick]
+            del babel_prefs[nick]
             return f"<{message.nick}> Babel mode disabled"
         else:
             return f"<{message.nick}> You do not have babel mode enabled"
     if dst not in LANGS:
         return f"<{message.nick}> {dst} is not a valid language code!"
     babel_users[channel][nick] = {"channel": channel, "dst": dst, "counter": 0}
-    return f"<{message.nick}> Babel mode enabled. You will now receive translations in {dst} as private messages for this channel: {channel}"
+    babel_prefs[nick] = {}
+    return Message(message=f"<{message.nick}> Babel mode enabled. You will now receive translations in {dst} as private messages for this channel: {channel}", channel=message.nick, is_private=True)
 
 
 def babel_warning(m, message, babel_nick, dst, src="en"):
-    translated_msg = str(trans(m, dst, src))
-    if translated_msg and translated_msg != "None":
+    translated_msg = trans(m, dst, src)
+    if translated_msg:
         return Message(
             message=f"<{babel_nick}> {translated_msg}",
             channel=babel_nick,
@@ -235,38 +245,77 @@ def babel_warning(m, message, babel_nick, dst, src="en"):
 COLORS = [
     Color.red,
     Color.navy,
-    Color.yellow,
-    Color.orange,
-    Color.magenta,
+    Color.light_gray,
     Color.maroon,
     Color.blue,
-    Color.green,
+    Color.magenta,
     Color.purple,
-    Color.light_gray,
+    Color.green,
+    Color.yellow,
+    Color.orange,
     Color.cyan,
     Color.light_green,
-    Color.green,
 ]
 
 
 def colorize(text):
     # use hash and colors to colorize text
-    return Color(text, COLORS[hash(text.casefold()) % len(COLORS)]).str + Color.esc
+    _hash = int(md5(text.strip().encode()).hexdigest(), 16)
+    return Color(text, COLORS[_hash % len(COLORS)]).str + Color.esc
 
 
-def babel_message(m, message, babel_nick, dst, src="en"):
-    translated_msg = str(trans(m, dst, src))
-    if translated_msg and translated_msg != "None":
-        return Message(
-            message=f"  \x02({colorize(message.channel)}) <{colorize(message.nick)}>\x02 {translated_msg}",
-            channel=babel_nick,
-            is_private=True,
-        )
+def babel_message(m, message, babel_nick, dst, src="auto"):
+    if type(m) != str:
+        m = m.group(1)
+    translated_msg = trans(m, dst, src)
+    if not translated_msg:
+        translated_msg = m
+    return Message(
+        message=f"  \x02({colorize(message.channel)}) <{colorize(message.nick)}>\x02 {translated_msg}",
+        channel=babel_nick,
+        is_private=True,
+    )
+
+
+async def ask(
+    bot: IrcBot,
+    nick: str,
+    question: str,
+    expected_input=None,
+    repeat_question=None,
+    loop: bool = True,
+    timeout_message: str = "Response timeout!",
+):
+    await bot.send_message(question, nick)
+    resp = await bot.wait_for("privmsg", nick, timeout=WAIT_TIMEOUT)
+    while loop:
+        if resp:
+            if expected_input is None or resp.get("text").strip() in expected_input:
+                break
+            await bot.send_message(
+                repeat_question if repeat_question else question, nick
+            )
+        else:
+            await bot.send_message(timeout_message, nick)
+            break
+        resp = await bot.wait_for("privmsg", nick, timeout=WAIT_TIMEOUT)
+    return resp.get("text").strip() if resp else None
+
+
+@utils.regex_cmd_with_messsage("^@reset$", ACCEPT_PRIVATE_MESSAGES)
+def reset_babel(m, message):
+    global babel_prefs
+    babel_prefs[message.nick] = {}
+    return Message(
+        message=f"<{message.nick}> Reset babel preferences",
+        channel=message.nick,
+        is_private=True,
+    )
 
 
 @utils.regex_cmd_with_messsage("^(.*)$", ACCEPT_PRIVATE_MESSAGES)
 async def process_auto(bot: IrcBot, m, message):
-    global babel_users
+    global babel_users, babel_prefs
     channel = message.channel
 
     if channel not in babel_users:
@@ -277,6 +326,7 @@ async def process_auto(bot: IrcBot, m, message):
         message.channel in babel_users or message.channel == NICK
     ) and message.nick in babel_users[message.channel]:
         babel_users[message.channel][message.nick]["counter"] = 0
+        logging.info(f"Reset babel counter for {message.nick} in {message.channel}")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         future_translations = {}
@@ -308,6 +358,7 @@ async def process_auto(bot: IrcBot, m, message):
                     }
                 )
                 del babel_users[channel][babel_nick]
+                del babel_prefs[babel_nick]
                 continue
             elif (
                 babel_users[channel][babel_nick]["counter"]
@@ -346,6 +397,87 @@ async def process_auto(bot: IrcBot, m, message):
                 logging.info("%r generated an exception: %s" % (text, exc))
             else:
                 await bot.send_message(data)
+
+    # Babel mode
+    if message.channel == message.nick:
+        nick = message.nick
+        if nick not in babel_prefs:
+            return
+
+        logging.debug(f"Babel mode for {nick} triggered")
+        if "channel" not in babel_prefs[nick]:
+            babel_channels = []
+            for babel_channel in babel_users:
+                for babel_nick in babel_users[babel_channel]:
+                    if babel_nick == nick:
+                        babel_channels.append(babel_channel)
+                        dst = babel_users[babel_channel][babel_nick]["dst"]
+            logging.debug(f"Babel channels for {nick}: {babel_channels}")
+
+            if len(babel_channels) > 1:
+                resp = await ask(
+                    bot,
+                    message.nick,
+                    PROMPT
+                    + trans("To what chat do you want to reply to?", src="en", dst=dst)
+                    + ". One of: "
+                    + ", ".join(babel_channels),
+                    expected_input=babel_channels,
+                    timeout_message=PROMPT
+                    + trans("Sorry but you took too long to reply!", src="en", dst=dst),
+                    repeat_question=PROMPT
+                    + trans(
+                        "Sorry, please choose one of these channels to send to:",
+                        src="en",
+                        dst=dst,
+                    )
+                    + ", ".join(babel_channels),
+                )
+                if not resp:
+                    return
+                babel_prefs[nick]["channel"] = resp
+            else:
+                babel_prefs[nick]["channel"] = babel_channels[0]
+
+        if "dst" not in babel_prefs[nick]:
+            logging.debug(f"{babel_prefs[nick]['channel']=}")
+            dst = babel_users[babel_prefs[nick]["channel"]][nick]["dst"]
+            resp = await ask(
+                bot,
+                message.nick,
+                PROMPT
+                + trans(
+                    "To what language you want to translate to? Send a 2 letter iso code.",
+                    src="en",
+                    dst=dst,
+                ),
+                expected_input=LANGS,
+                timeout_message=PROMPT
+                + trans("Sorry but you took too long to reply!", src="en", dst=dst),
+                repeat_question=PROMPT
+                + trans(
+                    "That is an invalid iso code! These are valid:", src="en", dst=dst
+                )
+                + "http://ix.io/2HAN",
+            )
+            if not resp:
+                return
+            babel_prefs[nick]["dst"] = resp
+            await bot.send_message(
+                trans(
+                    f"Sending to channel \"{babel_prefs[nick]['channel']}\" translating to language \"{babel_prefs[nick]['dst']}\". You can always reset this with \"@reset\"",
+                    src="en",
+                    dst=dst,
+                ),
+                nick,
+            )
+
+        msg = trans(m, dst=babel_prefs[nick]["dst"])
+        msg = msg if msg else m[1]
+        await bot.send_message(
+            f" \x02<{nick}>\x02 {msg}",
+            babel_prefs[nick]["channel"],
+        )
 
 
 if __name__ == "__main__":
