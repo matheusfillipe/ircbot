@@ -13,7 +13,7 @@
   * [wait_for (event)](#wait_for-event)
 * [Tips and tricks (logging, async, etc)](#tips-and-tricks-(logging,-async,-etc))
 * [FAQ](#faq)
-* [ROADMAP](#roadmap)
+* [ROADMAP](#ROADMAP)
 
 ## What is this?
 
@@ -167,6 +167,7 @@ async def ask(
             await bot.send_message(repeat_question if repeat_question else question, nick)
         else:
             await bot.send_message(timeout_message, nick)
+            break
         resp = await bot.wait_for("privmsg", nick, timeout=600)
     return resp.get('text').strip() if resp else None
 
