@@ -323,7 +323,7 @@ async def process_auto(bot: IrcBot, m, message):
 
     # reset babel counter on activity
     if (
-        message.channel in babel_users or message.channel == NICK
+        message.channel in babel_users or message.channel == message.nick
     ) and message.nick in babel_users[message.channel]:
         babel_users[message.channel][message.nick]["counter"] = 0
         logging.info(f"Reset babel counter for {message.nick} in {message.channel}")
@@ -479,6 +479,8 @@ async def process_auto(bot: IrcBot, m, message):
             babel_prefs[nick]["channel"],
         )
 
+        babel_users[message.channel][message.nick]["counter"] = 0
+        logging.info(f"Reset babel counter for {message.nick} in {message.channel}")
 
 if __name__ == "__main__":
     utils.setLogging(LEVEL, LOGFILE)
