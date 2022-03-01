@@ -1,6 +1,6 @@
 import concurrent.futures
-from collections import deque
 import logging
+from collections import deque
 from copy import deepcopy
 from functools import lru_cache
 from hashlib import md5
@@ -211,6 +211,7 @@ def auto(m, message):
     auto_nicks[message.nick][message.channel].append(au)
     return f"<{message.nick}> rule added!"
 
+
 back_messages = {}
 
 # Implement back translations
@@ -247,6 +248,7 @@ def back(m, message):
         channel=message.channel,
     )
 
+
 babel_users = {}
 babel_prefs = {}
 
@@ -270,7 +272,11 @@ def babel(m, message):
         return f"<{message.nick}> {dst} is not a valid language code!"
     babel_users[channel][nick] = {"channel": channel, "dst": dst, "counter": 0}
     babel_prefs[nick] = {}
-    return Message(message=f"<{message.nick}> Babel mode enabled. You will now receive translations in {dst} as private messages for this channel: {channel}", channel=message.nick, is_private=True)
+    return Message(
+        message=f"<{message.nick}> Babel mode enabled. You will now receive translations in {dst} as private messages for this channel: {channel}",
+        channel=message.nick,
+        is_private=True,
+    )
 
 
 def babel_warning(m, message, babel_nick, dst, src="en"):
@@ -526,7 +532,10 @@ async def process_auto(bot: IrcBot, m, message):
         )
 
         babel_users[babel_prefs[nick]["channel"]][message.nick]["counter"] = 0
-        logging.info(f"Reset babel counter for {message.nick} in {babel_prefs[nick]['channel']}")
+        logging.info(
+            f"Reset babel counter for {message.nick} in {babel_prefs[nick]['channel']}"
+        )
+
 
 if __name__ == "__main__":
     utils.setLogging(LEVEL, LOGFILE)
