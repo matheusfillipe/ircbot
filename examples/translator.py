@@ -225,7 +225,7 @@ def back(m, message):
     dst = args[1]
     if dst not in LANGS:
         return f"<{message.nick}> {dst} is not a valid language code!"
-    n = 0
+    n = 1
     if len(args) > 2:
         if args[2].isdigit():
             n = int(args[2])
