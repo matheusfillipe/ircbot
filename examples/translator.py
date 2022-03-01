@@ -1,4 +1,5 @@
 import concurrent.futures
+from collections import deque
 import logging
 from copy import deepcopy
 from functools import lru_cache
@@ -32,6 +33,7 @@ PROXIES = []
 # A maximum of simultaneously auto translations for each users
 MAX_AUTO_LANGS = 2
 MAX_BABEL_MSG_COUNTER = 20
+MAX_BACK_TRANSLATIONS = 10
 
 INFO_CMDS = {
     r"^@linux.*$": "The OS this bot runs on",
@@ -39,22 +41,26 @@ INFO_CMDS = {
         f"1. You can only have {MAX_AUTO_LANGS} auto translations active simultaneously",
         "2. Do not use this bot to spam",
     ],
-    "^@help auto.*$": [
+    "^@help\s+auto.*$": [
         "@auto [src_iso_code] [dest_iso_code] Sets the automatic translation from the source language to the target language as specified in the command.",
         "@auto show Displays the current source and target language or languages in place in the channel.",
         "@auto off [dest_iso_code] Disables automatic translation to the specified target language.",
         "@auto off Clears all rules for automatic translations in the channel.",
     ],
-    "^@help babel.*$": [
+    "^@help\+babel.*$": [
         "@babel [dest_iso_code] You will receve translations of this chat in the specified language as a PM from me.",
         "@babel off  Disables babel mode.",
         "Notice that this mode won't last forever, you have to be active on the channel to keep babel mode active.",
+    ],
+    "^@help\+back.*$": [
+        "@back [nick] [dest_iso_code] [N] Translates the Nth last message from the specified nick to the specified language. If N is not specified will translate the last",
     ],
     "^@help.*": [
         "@: Manually sets the target language for the current line, like so: @es Hello friends. This should translate 'Hello friends' to Spanish. The source language is detected automatically.",
         "Language iso codes: http://ix.io/2HAN, or https://cloud.google.com/translate/docs/languages",
         "@auto: automatically translate everything you send. Use '@help auto' for more info.",
         "@babel: automatically translate a chat and sends every message to you as a PM. Use '@help babel' for more info.",
+        "@back: Translates a recent user message. Usate '@help back' for more info.",
         "@reset: resets your babel preferences",
     ],
     #    r"^(.*) linux ": "Do you mean the best OS?",
@@ -129,7 +135,7 @@ def translate(m, message, dst, src="auto"):
         )
 
 
-@utils.regex_cmd_with_messsage("^@(\S?\S?)\s(.*)$", ACCEPT_PRIVATE_MESSAGES)
+@utils.regex_cmd_with_messsage("^@(\S\S?)\s(.*)$", ACCEPT_PRIVATE_MESSAGES)
 def translate_cmd(m, message):
     text = m.group(2)
     lang = m.group(1)
@@ -205,6 +211,41 @@ def auto(m, message):
     auto_nicks[message.nick][message.channel].append(au)
     return f"<{message.nick}> rule added!"
 
+back_messages = {}
+
+# Implement back translations
+@utils.regex_cmd_with_messsage("^@back (.*)$", ACCEPT_PRIVATE_MESSAGES)
+def back(m, message):
+    global back_messages
+    args = m.group(1).strip().split()
+    if len(args) < 2:
+        return f"<{message.nick}> Usage: @back <lang> <message> [n]"
+    nick = args[0]
+    dst = args[1]
+    if dst not in LANGS:
+        return f"<{message.nick}> {dst} is not a valid language code!"
+    n = 0
+    if len(args) > 2:
+        if args[2].isdigit():
+            n = int(args[2])
+        else:
+            return f"<{message.nick}> The third argument must be a number"
+        if n > MAX_BACK_TRANSLATIONS:
+            return f"<{message.nick}> You should use a number less than {MAX_BACK_TRANSLATIONS}"
+
+    if message.channel not in back_messages:
+        return f"<{message.nick}> No messages found for this channel"
+    if nick not in back_messages[message.channel]:
+        return f"<{message.nick}> No messages found for {nick} on this channel"
+    cached = back_messages[message.channel][nick]
+    if len(cached) < n:
+        return f"<{message.nick}> There are only {len(cached)} messages for {nick} on this channel"
+    text = cached[-n]
+    translated_msg = trans(text, dst, "auto")
+    return Message(
+        message=f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}",
+        channel=message.channel,
+    )
 
 babel_users = {}
 babel_prefs = {}
@@ -315,8 +356,13 @@ def reset_babel(m, message):
 
 @utils.regex_cmd_with_messsage("^(.*)$", ACCEPT_PRIVATE_MESSAGES)
 async def process_auto(bot: IrcBot, m, message):
-    global babel_users, babel_prefs
+    global babel_users, babel_prefs, back_messages
     channel = message.channel
+    if channel not in back_messages:
+        back_messages[channel] = {}
+    if message.nick not in back_messages[channel]:
+        back_messages[channel][message.nick] = deque(maxlen=MAX_BACK_TRANSLATIONS)
+    back_messages[channel][message.nick].append(message.text)
 
     if channel not in babel_users:
         babel_users[channel] = {}
