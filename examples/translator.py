@@ -242,7 +242,7 @@ def back(m, message):
     if len(cached) < n:
         return f"<{message.nick}> There are only {len(cached)} messages for {nick} on this channel"
     text = cached[-n]
-    translated_msg = trans(text, dst, "auto")
+    translated_msg = trans(text, dst, "auto") or text
     return Message(
         message=f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}",
         channel=message.channel,
