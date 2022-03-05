@@ -22,7 +22,7 @@ USERNAME = "translator"
 REALNAME = "simple_bot"
 FREENODE_AUTH = True
 SINGLE_CHAN = True
-CHANNELS = ["#bots", "#romanian"]
+CHANNELS = ["#bots"]
 ACCEPT_PRIVATE_MESSAGES = True
 DBFILEPATH = NICK + ".db"
 PROMPT = ">>> "
@@ -106,8 +106,10 @@ def trans(m, dst, src="auto", autodetect=True):
         )
         try:
             if autodetect and translator.detect(m)[0] == dst:
+                logging.info("Ignoring source equals destination: " + m)
                 return
-            if src != "auto" and translator.detect(m)[0] != src:
+            if autodetect and src != "auto" and translator.detect(m)[0] != src:
+                logging.info("Ignoring source equals destination: " + m)
                 return
             msg = translator.translate(m, lang_tgt=dst, lang_src=src)
             return str(msg)
@@ -140,6 +142,9 @@ def translate_cmd(m, message):
     src = m.group(1)
     dst = m.group(2)
     text = m.group(3)
+    print(f"{src=}")
+    print(f"{dst=}")
+    print(f"{text=}")
     lang = src if dst is None else dst
     if lang not in LANGS:
         return f"<{message.nick}> {lang} is not a valid langauge code!"
