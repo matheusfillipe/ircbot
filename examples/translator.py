@@ -145,7 +145,7 @@ def translate_cmd(m, message):
         return f"<{message.nick}> {lang} is not a valid langauge code!"
     if dst and dst not in LANGS:
         return f"<{message.nick}> {dst} is not a valid langauge code!"
-    return translate(text, message, lang, src=src)
+    return translate(text, message, lang, src=src if src else "auto")
 
 
 @utils.regex_cmd_with_messsage("^@auto (.*)$", ACCEPT_PRIVATE_MESSAGES)
