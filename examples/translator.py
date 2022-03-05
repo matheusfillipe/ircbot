@@ -95,7 +95,7 @@ for r in INFO_CMDS:
 
 
 @lru_cache(maxsize=CACHE_SIZE)
-def trans(m, dst, src="auto"):
+def trans(m, dst, src="auto", autodetect=true):
     if type(m) != str:
         m = m.group(1)
     logging.info("Translating: " + m)
@@ -105,7 +105,7 @@ def trans(m, dst, src="auto"):
             proxies={"http": PROXIES[proxy_index]} if proxy_index is not None else None
         )
         try:
-            if translator.detect(m)[0] == dst:
+            if autodetect and translator.detect(m)[0] == dst:
                 return
             if src != "auto" and translator.detect(m)[0] != src:
                 return
@@ -126,8 +126,8 @@ def trans(m, dst, src="auto"):
             print(f"Failed... Trying proxy: {PROXIES[proxy_index]}")
 
 
-def translate(m, message, dst, src="auto"):
-    translated_msg = trans(m, dst, src)
+def translate(m, message, dst, src="auto", autodetect=True):
+    translated_msg = trans(m, dst, src, autodetect)
     if translated_msg:
         return Message(
             message=f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}",
@@ -145,7 +145,7 @@ def translate_cmd(m, message):
         return f"<{message.nick}> {lang} is not a valid langauge code!"
     if dst and dst not in LANGS:
         return f"<{message.nick}> {dst} is not a valid langauge code!"
-    return translate(text, message, lang, src=src if dst else "auto")
+    return translate(text, message, lang, src=src if dst else "auto", autodetect=not dst)
 
 
 @utils.regex_cmd_with_messsage("^@auto (.*)$", ACCEPT_PRIVATE_MESSAGES)
