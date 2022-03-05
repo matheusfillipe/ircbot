@@ -135,15 +135,17 @@ def translate(m, message, dst, src="auto"):
         )
 
 
-@utils.regex_cmd_with_messsage("^@(\S\S?)\s(.*)$", ACCEPT_PRIVATE_MESSAGES)
+@utils.regex_cmd_with_messsage(r"^@(\S\S)(?::(\S\S))?\s(.*)$", ACCEPT_PRIVATE_MESSAGES)
 def translate_cmd(m, message):
-    text = m.group(2)
-    lang = m.group(1)
+    src = m.group(1)
+    dst = m.group(2)
+    text = m.group(3)
+    lang = src if dst is None else dst
     if lang not in LANGS:
         return f"<{message.nick}> {lang} is not a valid langauge code!"
-    if len(lang) != 2:
-        lang = "en"
-    return translate(text, message, lang)
+    if dst and dst not in LANGS:
+        return f"<{message.nick}> {dst} is not a valid langauge code!"
+    return translate(text, message, lang, src=src)
 
 
 @utils.regex_cmd_with_messsage("^@auto (.*)$", ACCEPT_PRIVATE_MESSAGES)
