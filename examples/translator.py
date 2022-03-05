@@ -95,7 +95,7 @@ for r in INFO_CMDS:
 
 
 @lru_cache(maxsize=CACHE_SIZE)
-def trans(m, dst, src="auto", autodetect=true):
+def trans(m, dst, src="auto", autodetect=True):
     if type(m) != str:
         m = m.group(1)
     logging.info("Translating: " + m)
