@@ -3,7 +3,7 @@ import setuptools
 import subprocess
 
 VERSION = "1.5.3",
-BRANCH = "MAIN"
+BRANCH = "main"
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -25,16 +25,19 @@ def git_version_tag():
     """Get the current git version tag"""
     branch = exec("git rev-parse --abbrev-ref HEAD")
     version = re.match(r"^v[0-9]+(\.[0-9]+)*$", exec("git describe --tags --abbrev=0"))
-    if branch == BRANCH:
-        return version
+    if branch == BRANCH and version:
+        return version[0][1:]
     else:
         return VERSION
 
 requirements = requirements()
 
+VERSION = git_version_tag()
+print(f"BUILDING Version: {VERSION}")
+
 setuptools.setup(
     name="re-ircbot",
-    version=git_version_tag(),
+    version=VERSION,
     author="Matheus Fillipe",
     author_email="mattf@tilde.club",
     description="A simple async irc bot framework with regex command definitions and data permanency",
