@@ -1,4 +1,9 @@
+import re
 import setuptools
+import subprocess
+
+VERSION = "1.5.3",
+BRANCH = "MAIN"
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -12,11 +17,24 @@ def requirements():
             requirements_list.append(install.strip())
     return requirements_list
 
+def exec(cmd):
+    """Execute a command and return the output"""
+    return subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True).decode().strip()
+
+def git_version_tag():
+    """Get the current git version tag"""
+    branch = exec("git rev-parse --abbrev-ref HEAD")
+    version = re.match(r"^v[0-9]+(\.[0-9]+)*$", exec("git describe --tags --abbrev=0"))
+    if branch == BRANCH:
+        return version
+    else:
+        return VERSION
+
 requirements = requirements()
 
 setuptools.setup(
     name="re-ircbot",
-    version="1.5.3",
+    version=git_version_tag(),
     author="Matheus Fillipe",
     author_email="mattf@tilde.club",
     description="A simple async irc bot framework with regex command definitions and data permanency",

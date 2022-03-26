@@ -135,7 +135,7 @@ def custom_handler(action, **kwargs):
 
 single_match = False
 command_prefix = "!"
-_command_max_arguments = 10
+_command_max_arguments = 25
 _NonSpace = r"\S"
 re_command = (
     lambda cmd, acccept_pms=True, pass_data=False, **kwargs: regex_cmd_with_messsage(
@@ -405,8 +405,8 @@ def setMaxArguments(n):
 
     :param n: number of arguments for callbacks in arg_command decorator
     """
-    global command_max_arguments
-    command_max_arguments = n
+    global _command_max_arguments
+    _command_max_arguments = n
 
 
 # LOGGING SETUP

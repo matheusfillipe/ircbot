@@ -1,6 +1,10 @@
 # re-ircbot, a simple irc bot library
 
-* [What is this?](#what-is-this?)
+This is a simple irc bot library that uses trio for async callback processing and allows you to
+use persistent data based on user's nick and channels. The callbacks for
+commands are defined by regular expressions. You might want to take a look on
+the examples folder.
+
 * [How to install](#how-to-install)
 * [Basic usage](#basic-usage)
   * [Define regex commands](#define-regex-commands)
@@ -10,17 +14,11 @@
   * [Data permanency](#data-permanency)
   * [Wait for user response](#wait-for-user-response)
   * [Run independently of user input](#run-independently-of-user-input)
-  * [wait_for (event)](#wait_for-event)
+  * [wait_for (event)](wait_for-event)
 * [Tips and tricks (logging, async, etc)](#tips-and-tricks-(logging,-async,-etc))
 * [FAQ](#faq)
-* [ROADMAP](#ROADMAP)
+* [ROADMAP](#roadmap)
 
-## What is this?
-
-This is a simple irc bot library that uses trio for async callback processing and allows you to
-use persistent data based on user's nick and channels. The callbacks for
-commands are defined by regular expressions. You might want to take a look on
-the examples folder.
 
 ## How to install 
 
