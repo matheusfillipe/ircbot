@@ -67,7 +67,11 @@ jobs:
     docker:
       - image: cimg/python:3.9
     steps:
-      - checkout
+      - run:
+          name: Checkout
+          command: |
+            git clone https://github.com/matheusfillipe/ircbot.git .
+            git fetch --all
       - run:
           name: install python dependencies
           command: |
