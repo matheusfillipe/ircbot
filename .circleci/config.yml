@@ -61,7 +61,7 @@ jobs:
           name: Smoke Test Install 
           command: |
             python --version
-            sudo pip install .
+            pip install .
 
   deploy:
     docker:
