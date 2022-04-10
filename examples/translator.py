@@ -47,12 +47,12 @@ INFO_CMDS = {
         "@auto off [dest_iso_code] Disables automatic translation to the specified target language.",
         "@auto off Clears all rules for automatic translations in the channel.",
     ],
-    "^@help\+babel.*$": [
+    "^@help\s+babel.*$": [
         "@babel [dest_iso_code] You will receve translations of this chat in the specified language as a PM from me.",
         "@babel off  Disables babel mode.",
         "Notice that this mode won't last forever, you have to be active on the channel to keep babel mode active.",
     ],
-    "^@help\+back.*$": [
+    "^@help\s+back.*$": [
         "@back [nick] [dest_iso_code] [N] Translates the Nth last message from the specified nick to the specified language. If N is not specified will translate the last",
     ],
     "^@help.*": [
@@ -150,7 +150,9 @@ def translate_cmd(m, message):
         return f"<{message.nick}> {lang} is not a valid langauge code!"
     if dst and dst not in LANGS:
         return f"<{message.nick}> {dst} is not a valid langauge code!"
-    return translate(text, message, lang, src=src if dst else "auto", autodetect=not dst)
+    return translate(
+        text, message, lang, src=src if dst else "auto", autodetect=not dst
+    )
 
 
 @utils.regex_cmd_with_messsage("^@auto (.*)$", ACCEPT_PRIVATE_MESSAGES)
@@ -478,17 +480,28 @@ async def process_auto(bot: IrcBot, m, message):
                     bot,
                     message.nick,
                     PROMPT
-                    + trans("To what chat do you want to reply to?", src="en", dst=dst)
+                    + trans(
+                        "To what chat do you want to reply to?",
+                        src="en",
+                        dst=dst,
+                        autodetect=False,
+                    )
                     + ". One of: "
                     + ", ".join(babel_channels),
                     expected_input=babel_channels,
                     timeout_message=PROMPT
-                    + trans("Sorry but you took too long to reply!", src="en", dst=dst),
+                    + trans(
+                        "Sorry but you took too long to reply!",
+                        src="en",
+                        dst=dst,
+                        autodetect=False,
+                    ),
                     repeat_question=PROMPT
                     + trans(
                         "Sorry, please choose one of these channels to send to:",
                         src="en",
                         dst=dst,
+                        autodetect=False,
                     )
                     + ", ".join(babel_channels),
                 )
@@ -509,13 +522,22 @@ async def process_auto(bot: IrcBot, m, message):
                     "To what language you want to translate to? Send a 2 letter iso code.",
                     src="en",
                     dst=dst,
+                    autodetect=False,
                 ),
                 expected_input=LANGS,
                 timeout_message=PROMPT
-                + trans("Sorry but you took too long to reply!", src="en", dst=dst),
+                + trans(
+                    "Sorry but you took too long to reply!",
+                    src="en",
+                    dst=dst,
+                    autodetect=False,
+                ),
                 repeat_question=PROMPT
                 + trans(
-                    "That is an invalid iso code! These are valid:", src="en", dst=dst
+                    "That is an invalid iso code! These are valid:",
+                    src="en",
+                    dst=dst,
+                    autodetect=False,
                 )
                 + "http://ix.io/2HAN",
             )
@@ -527,6 +549,7 @@ async def process_auto(bot: IrcBot, m, message):
                     f"Sending to channel \"{babel_prefs[nick]['channel']}\" translating to language \"{babel_prefs[nick]['dst']}\". You can always reset this with \"@reset\"",
                     src="en",
                     dst=dst,
+                    autodetect=False,
                 ),
                 nick,
             )
