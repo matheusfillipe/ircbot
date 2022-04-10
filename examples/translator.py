@@ -1,5 +1,6 @@
 import concurrent.futures
 import logging
+import re
 from collections import deque
 from copy import deepcopy
 from functools import lru_cache
@@ -98,6 +99,12 @@ for r in INFO_CMDS:
 def trans(m, dst, src="auto", autodetect=True):
     if type(m) != str:
         m = m.group(1)
+
+    # Removing nicknames
+    match = re.match(r"^(\w+?\s*:\s*)?(.+)", m)
+    head = match[1] if match[1] else ""
+    m = match[2]
+
     logging.info("Translating: " + m)
     proxy_index = None
     while proxy_index is None or proxy_index < len(PROXIES):
@@ -112,7 +119,7 @@ def trans(m, dst, src="auto", autodetect=True):
                 logging.info("Ignoring source equals destination: " + m)
                 return
             msg = translator.translate(m, lang_tgt=dst, lang_src=src)
-            return str(msg)
+            return head + str(msg)
         except google_trans_new.google_new_transError as e:
             import sys
             import traceback
