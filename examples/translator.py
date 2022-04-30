@@ -154,9 +154,9 @@ def translate_cmd(m, message):
     print(f"{text=}")
     lang = src if dst is None else dst
     if lang not in LANGS:
-        return f"<{message.nick}> {lang} is not a valid langauge code!"
+        return f"<{message.nick}> {lang} is not a valid language code!"
     if dst and dst not in LANGS:
-        return f"<{message.nick}> {dst} is not a valid langauge code!"
+        return f"<{message.nick}> {dst} is not a valid language code!"
     return translate(
         text, message, lang, src=src if dst else "auto", autodetect=not dst
     )
