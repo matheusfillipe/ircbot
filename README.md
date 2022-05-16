@@ -1,4 +1,4 @@
-[![Pypi](https://badge.fury.io/py/mangle.svg)](https://pypi.org/project/mangle/)
+[![Pypi](https://badge.fury.io/py/re-ircbot.svg)](https://pypi.org/project/re-ircbot/)
 [![Chat with me on irc](https://img.shields.io/badge/-IRC-gray?logo=gitter)](https://mangle.ga/irc)
 
 # re-ircbot, a simple irc bot library
