@@ -1,3 +1,6 @@
+[![Pypi](https://badge.fury.io/py/mangle.svg)](https://pypi.org/project/mangle/)
+[![Chat with me on irc](https://img.shields.io/badge/-IRC-gray?logo=gitter)](https://mangle.ga/irc)
+
 # re-ircbot, a simple irc bot library
 
 This is a simple irc bot library that uses trio for async callback processing and allows you to
