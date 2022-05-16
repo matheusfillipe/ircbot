@@ -230,6 +230,7 @@ class IrcBot(object):
         strip_messages=True,
         dcc_ports=None,
         dcc_host=False,
+        dcc_announce_host=None
     ):
         """Creates a bot instance joining to the channel if specified.
 
@@ -257,6 +258,7 @@ class IrcBot(object):
             'dccsend' -> {'nick', 'filename', 'ip', 'port', 'size', 'token'}
         :param dcc_ports: list of ports numbers to use for dcc
         :param dcc_host: ip address to bind to for passive dcc file receiving and dcc send.
+        :param dcc_announce_host: ip address to announce for passive dcc file receiving and dcc send.
         type: str ip or None to bind to the wildcard address. Default will try to guess (LAN IP)
         """
 
@@ -270,6 +272,8 @@ class IrcBot(object):
             custom_handlers = {}
         if dcc_ports is None:
             dcc_ports = list(range(4990, 5000))
+        if dcc_announce_host is None:
+            dcc_announce_host = dcc_host
 
         self.nick = nick
         self.password = password
@@ -288,6 +292,7 @@ class IrcBot(object):
         self.strip_messages = strip_messages
         self.dcc_ports = dcc_ports
         self.dcc_host = dcc_host
+        self.dcc_announce_host = dcc_announce_host
         self._dcc_busy_ports = {}
         if self.dcc_host is False:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -742,7 +747,7 @@ class IrcBot(object):
                 "type": server_type,
             }
             async with trio.open_nursery() as nursery:
-                await nursery.start(partial(trio.serve_tcp, host=ip), handler, port)
+                await nursery.start(partial(trio.serve_tcp, host=self.dcc_host), handler, port)
         log(f"Finished dcc server with {success=}")
         return success
 
@@ -782,7 +787,7 @@ class IrcBot(object):
         message = {
             "nick": nick,
             "filename": filename,
-            "ip": self.dcc_host,
+            "ip": self.dcc_announce_host,
             "port": port,
             "size": size,
         }
@@ -816,7 +821,7 @@ class IrcBot(object):
 
         # DCC PASSIVE GET SERVER
         if helper.is_passive:
-            ip = self.dcc_host
+            ip = self.dcc_announce_host
             port = self._dcc_get_available_port()
             log(f"{message.get('nick')=}")
             message.update({"ip": ip, "port": port})
