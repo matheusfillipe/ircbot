@@ -86,7 +86,7 @@ class Color(object):
             self.text = "{}{},{}{}".format(self.esc, fg, bg, text)
         else:
             self.text = "{}{}{}".format(self.esc, fg, text)
-        self.str = self.text
+        self.str = self.text + Color.esc
 
     @classmethod
     def random(cls):
@@ -105,7 +105,7 @@ class Color(object):
         ]
 
     def __str__(self):
-        return self.str + Color.esc
+        return self.str
 
 
 class dbOperation(object):
