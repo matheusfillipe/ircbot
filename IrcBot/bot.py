@@ -23,6 +23,7 @@ from math import ceil
 from pathlib import Path
 
 import trio
+import trio_asyncio
 from cachetools import TTLCache
 
 from IrcBot import dcc, utils
@@ -364,7 +365,7 @@ class IrcBot(object):
         Useful if you want to use bot.send without user interaction.
         param: async_callback: async function to be called.
         """
-        trio.run(self._mainloop, async_callback)
+        trio_asyncio.run(self._mainloop, async_callback)
 
     async def start_with_callback(self):
         async with trio.open_nursery() as nursery:
@@ -381,7 +382,7 @@ class IrcBot(object):
 
         param: async_callback: async function to be called.
         """
-        trio.run(self._mainloop, async_callback)
+        trio_asyncio.run(self._mainloop, async_callback)
 
     async def sleep(self, time):
         """Waits for time.
