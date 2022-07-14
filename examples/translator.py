@@ -115,7 +115,7 @@ def trans(m, dst, src="auto", autodetect=True):
             if autodetect and translator.detect(m)[0] == dst:
                 logging.info("Ignoring source equals destination: " + m)
                 return
-            if autodetect and src != "auto" and translator.detect(m)[0] != src:
+            if autodetect and src != "auto" and not translator.detect(m)[0].startswith(src):
                 logging.info("Ignoring source equals destination: " + m)
                 return
             msg = translator.translate(m, lang_tgt=dst, lang_src=src)
