@@ -8,21 +8,6 @@ use persistent data based on user's nick and channels. The callbacks for
 commands are defined by regular expressions. You might want to take a look on
 the examples folder.
 
-* [How to install](#how-to-install)
-* [Basic usage](#basic-usage)
-  * [Define regex commands](#define-regex-commands)
-  * [Define simple argument commands](#define-simple-argument-commands)
-  * [Launch the bot](#launch-the-bot)
-  * [Colors](#colors)
-  * [Data permanency](#data-permanency)
-  * [Wait for user response](#wait-for-user-response)
-  * [Run independently of user input](#run-independently-of-user-input)
-  * [wait_for (event)](wait_for-event)
-* [Tips and tricks (logging, async, etc)](#tips-and-tricks-(logging,-async,-etc))
-* [FAQ](#faq)
-* [ROADMAP](#roadmap)
-
-
 ## How to install 
 
 `pip3 install re-ircbot`
