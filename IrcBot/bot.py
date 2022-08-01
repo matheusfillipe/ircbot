@@ -638,18 +638,21 @@ class IrcBot(object):
         async with trio.open_nursery() as nursery:
             async with self.send_message_channel, self.send_db_operation_channel:
                 async for data in s:
-                    data = data.decode("utf-8")
-                    debug(
-                        "\n>>>> DECODED DATA FROM SERVER: \n",
-                        60 * "-",
-                        "\n",
-                        f"{data=}\n",
-                        60 * "-",
-                        "\n",
-                    )
-                    self.fetch_tables()
-                    for msg in data.split("\r\n"):
-                        nursery.start_soon(self.data_handler, s, msg)
+                    try:
+                        data = data.decode("utf-8")
+                        debug(
+                            "\n>>>> DECODED DATA FROM SERVER: \n",
+                            60 * "-",
+                            "\n",
+                            f"{data=}\n",
+                            60 * "-",
+                            "\n",
+                        )
+                        self.fetch_tables()
+                        for msg in data.split("\r\n"):
+                            nursery.start_soon(self.data_handler, s, msg)
+                    except UnicodeDecodeError:
+                        pass
 
     async def process_result(self, result, channel, sender_nick, is_private):
         if type(result) == ReplyIntent:
