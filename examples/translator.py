@@ -109,6 +109,7 @@ def trans(m, dst, src="auto", autodetect=True):
     proxy_index = None
     while proxy_index is None or proxy_index < len(PROXIES):
         translator = google_translator(
+            url_suffix="de",
             proxies={"http": PROXIES[proxy_index]} if proxy_index is not None else None
         )
         try:
