@@ -27,12 +27,13 @@ import trio_asyncio
 from cachetools import TTLCache
 
 from IrcBot import dcc, utils
-from IrcBot.message import Message, ReplyIntent
+from IrcBot.message import Message, RawMessage, ReplyIntent
 from IrcBot.sqlitedb import DB
 from IrcBot.utils import debug, log, logger
 
 Message = Message
 ReplyIntent = ReplyIntent
+RawMessage = RawMessage
 
 BUFFSIZE = 2048
 MAX_MESSAGE_LEN = 410
@@ -99,10 +100,7 @@ class Color(object):
         return [
             k
             for k in Color.__dict__
-            if not (
-                k.startswith("_")
-                or k in ["esc", "COLORS", "colors", "getcolors", "random"]
-            )
+            if not (k.startswith("_") or k in ["esc", "COLORS", "colors", "getcolors", "random"])
         ]
 
     def __str__(self):
@@ -231,7 +229,7 @@ class IrcBot(object):
         strip_messages=True,
         dcc_ports=None,
         dcc_host=False,
-        dcc_announce_host=None
+        dcc_announce_host=None,
     ):
         """Creates a bot instance joining to the channel if specified.
 
@@ -379,10 +377,9 @@ class IrcBot(object):
         await self.async_callback(self)
 
     def add_middleware(self, method):
-        """
-        Adds a middleware to run before every command.
+        """Adds a middleware to run before every command.
 
-        :param method callable: Async method that will receive the this bot instance for every command handling  event.
+        :param method callable: Async method that will receive the this bot instance and the incoming message object for every command handling event.
         """
         self.middleware.append(method)
 
@@ -445,9 +442,7 @@ class IrcBot(object):
             nick_cr = ("NICK " + self.nick + "\r\n").encode()
             await s.send_all(nick_cr)
 
-            usernam_cr = (
-                "USER " + " ".join([self.username] * 3) + " :" + self.nick + " \r\n"
-            ).encode()
+            usernam_cr = ("USER " + " ".join([self.username] * 3) + " :" + self.nick + " \r\n").encode()
             await s.send_all(usernam_cr)
 
             ping_confirmed = False
@@ -461,9 +456,7 @@ class IrcBot(object):
 
             if self.password:
                 log("IDENTIFYING")
-                auth_cr = (
-                    "PRIVMSG NickServ :IDENTIFY " + self.password + "\r\n"
-                ).encode()
+                auth_cr = ("PRIVMSG NickServ :IDENTIFY " + self.password + "\r\n").encode()
                 await s.send_all(auth_cr)
 
             if self.delay:
@@ -473,9 +466,7 @@ class IrcBot(object):
 
                 await s.send_all(("AUTHENTICATE PLAIN").encode())
                 sep = "\x00"
-                b = base64.b64encode(
-                    (self.nick + sep + self.nick + sep + self.password).encode("utf8")
-                ).decode("utf8")
+                b = base64.b64encode((self.nick + sep + self.nick + sep + self.password).encode("utf8")).decode("utf8")
                 data = s.recv(4096).decode("utf-8")
                 log("Server SAYS: ", data)
                 await s.send_all(("AUTHENTICATE " + b).encode())
@@ -561,10 +552,7 @@ class IrcBot(object):
             "+",
         ]
         names = self.channel_names[channel]
-        names = [
-            name[1:] if any([name.startswith(s) for s in special_symbols]) else name
-            for name in names
-        ]
+        names = [name[1:] if any([name.startswith(s) for s in special_symbols]) else name for name in names]
         return names
 
     async def send_message(self, message, channel=None):
@@ -587,9 +575,7 @@ class IrcBot(object):
         if type(message) == str:
             message = message.replace("\n", "    ")
             message = message.replace("\r", "")
-            await self._enqueue_message(
-                (str("PRIVMSG " + channel) + " :" + message + " \r\n")
-            )
+            await self._enqueue_message((str("PRIVMSG " + channel) + " :" + message + " \r\n"))
         elif type(message) == Color:
             await self._send_message(message.str, channel)
         elif type(message) == list:
@@ -666,16 +652,12 @@ class IrcBot(object):
     async def process_result(self, result, channel, sender_nick, is_private):
         if type(result) == ReplyIntent:
             if result.message:
-                await self.send_message(
-                    result.message, sender_nick if is_private else channel
-                )
+                await self.send_message(result.message, sender_nick if is_private else channel)
                 if type(result.message) == Message:
                     if result.message.channel not in self.replyIntents:
                         self.replyIntents[result.message.channel] = {}
                     debug("Saving message intent")
-                    self.replyIntents[result.message.channel][
-                        result.message.sender_nick
-                    ] = result
+                    self.replyIntents[result.message.channel][result.message.sender_nick] = result
                     return
 
             if channel not in self.replyIntents:
@@ -688,9 +670,7 @@ class IrcBot(object):
         if self.tables:
             await self.check_tables()
 
-    async def _start_dcc_server(
-        self, server_type: dcc.DccServer, dcc_data, progress_callback=None
-    ):
+    async def _start_dcc_server(self, server_type: dcc.DccServer, dcc_data, progress_callback=None):
         filename = dcc_data["filename"]
         is_sender = dcc.DccServer.SEND == server_type
         ip = dcc_data["ip"]
@@ -766,9 +746,7 @@ class IrcBot(object):
 
     def _dcc_get_available_port(self, take_port=True):
         for pt in self.dcc_ports:
-            if pt not in self._dcc_busy_ports and dcc.is_port_available(
-                self.dcc_host, pt
-            ):
+            if pt not in self._dcc_busy_ports and dcc.is_port_available(self.dcc_host, pt):
                 if take_port:
                     self._dcc_busy_ports[pt] = None
                 return pt
@@ -805,9 +783,7 @@ class IrcBot(object):
             "size": size,
         }
         await self._dcc_send(message)
-        send_result = await self._start_dcc_server(
-            dcc.DccServer.SEND, message, progress_callback
-        )
+        send_result = await self._start_dcc_server(dcc.DccServer.SEND, message, progress_callback)
         if not send_result:
             await self.dcc_reject(dcc.DccServer.GET, nick, filename)
         self._dcc_free_port(port)
@@ -844,9 +820,7 @@ class IrcBot(object):
                 return
             await self._dcc_send(message)
             m.update({"filename": download_path})
-            if not await self._start_dcc_server(
-                dcc.DccServer.GET, message, progress_callback
-            ):
+            if not await self._start_dcc_server(dcc.DccServer.GET, message, progress_callback):
                 await self.dcc_reject(dcc.DccServer.GET, m=message)
             self._dcc_free_port(port)
             return True
@@ -894,9 +868,7 @@ class IrcBot(object):
 
         return True
 
-    async def dcc_reject(
-        self, dcc_type: dcc.DccServer, nick=None, filename=None, m=None
-    ):
+    async def dcc_reject(self, dcc_type: dcc.DccServer, nick=None, filename=None, m=None):
         """Sends a DCC REJECT to nick for the offered filename or receiving
         filename.
 
@@ -914,9 +886,7 @@ class IrcBot(object):
             nick = m["nick"]
             filename = m["filename"]
 
-        await self.send_raw(
-            f"NOTICE {nick} :\x01DCC REJECT {dcc_type.name} {Path(filename).name}\x01\r\n"
-        )
+        await self.send_raw(f"NOTICE {nick} :\x01DCC REJECT {dcc_type.name} {Path(filename).name}\x01\r\n")
 
     async def _dcc_send(self, message):
         await self.send_raw(
@@ -942,7 +912,7 @@ class IrcBot(object):
         """Will wait for a response of type check custom handler types from
         nick. Will return the message dict.
 
-        :param type: Message type (dccsend, dccreject, privmsg, ping, channel, names)
+        :param type: Message type (dccsend, dccreject, privmsg, ping, channel, names, who)
         :type type: str
         :param from_nick: Optional nick to match from
         :type from_nick: str
@@ -959,23 +929,15 @@ class IrcBot(object):
         use_cache = cache_ttl and cache_ttl > 0
         key = self._wait_msg_key(type, from_nick)
         idx = random.randint(0, 1000000)
-        if (
-            use_cache
-            and key in self._awaiting_messages
-            and "cache" in self._awaiting_messages[key]
-        ):
+        if use_cache and key in self._awaiting_messages and "cache" in self._awaiting_messages[key]:
 
             message = self._awaiting_messages[key]["cache"]
             try:
-                if not callable(filter_func) or (
-                    callable(filter_func) and filter_func(message)
-                ):
+                if not callable(filter_func) or (callable(filter_func) and filter_func(message)):
                     debug(f"WAIT FOR: using cached result for {from_nick}")
                     return message
             except Exception as e:
-                log(
-                    f"ATTENTION! Error in wait_for -> your {filter_func=} failed with {str(e)}"
-                )
+                log(f"ATTENTION! Error in wait_for -> your {filter_func=} failed with {str(e)}")
 
         if key not in self._awaiting_messages:
             self._awaiting_messages[key] = {}
@@ -1084,9 +1046,7 @@ class IrcBot(object):
                 "notice": g.group(3),
                 "text": g.group(4),
             },
-            r"^\s*PING \s*"
-            + self.nick
-            + r"\s*$": lambda g: {"type": "ping", "ping": self.nick},
+            r"^\s*PING \s*" + self.nick + r"\s*$": lambda g: {"type": "ping", "ping": self.nick},
             r"^:\S+\s+PONG\s+\S+\s+:(\S+).*$": lambda g: {"type": "pong", "nick": g[1]},
             r"^:\S* 353 "
             + self.nick
@@ -1133,6 +1093,17 @@ class IrcBot(object):
                 "nick": g[1],
                 "nickchange": g[2],
             },
+            r"^:\S+ 352 "
+            + self.nick
+            + r" (\S+) (\S+) (\S+) (\S+) (\S+) (\S+) :(.*)$": lambda g: {
+                "type": "who",
+                "channel": g[1],
+                "user": g[2],
+                "host": g[3],
+                "server": g[4],
+                "nick": g[5],
+                "modes": g[6],
+            },
         }
 
         message = None
@@ -1147,9 +1118,7 @@ class IrcBot(object):
             if message["type"] in self.custom_handlers:
                 m_copy = copy(message)
                 m_copy.pop("type")
-                result = await self._call_cb(
-                    self.custom_handlers[message["type"]], **m_copy
-                )
+                result = await self._call_cb(self.custom_handlers[message["type"]], None, **m_copy)
                 if result:
                     await self.send_message(result)
 
@@ -1166,18 +1135,12 @@ class IrcBot(object):
                         if callable(filter_func) and not filter_func(message):
                             continue
                     except Exception as e:
-                        log(
-                            f"ATTENTION! Error in wait_for -> your {filter_func=} failed with {str(e)}"
-                        )
+                        log(f"ATTENTION! Error in wait_for -> your {filter_func=} failed with {str(e)}")
                         continue
-                    debug(
-                        f"Found match for awaiting message {idx=} {self._awaiting_messages[akey][idx]=}"
-                    )
+                    debug(f"Found match for awaiting message {idx=} {self._awaiting_messages[akey][idx]=}")
                     debug(f"{message=}")
                     try:
-                        await self._awaiting_messages[akey][idx]["send_stream"].send(
-                            message
-                        )
+                        await self._awaiting_messages[akey][idx]["send_stream"].send(message)
                     except trio.ClosedResourceError:
                         continue
                     if not use_cache:
@@ -1302,23 +1265,18 @@ class IrcBot(object):
                 msg = re.sub(r"\003\d\d(?:,\d\d)?", "", msg)
                 debug(f"PARSED MESSAGE: {msg}")
 
-                if (
-                    channel in self.replyIntents
-                    and sender_nick in self.replyIntents[channel]
-                ):
+                if channel in self.replyIntents and sender_nick in self.replyIntents[channel]:
+                    _message = Message(channel, sender_nick, msg, is_private)
                     result = await self._call_cb(
                         self.replyIntents[channel][sender_nick].func,
-                        Message(channel, sender_nick, msg, is_private),
+                        _message,
+                        _message,
                     )
                     del self.replyIntents[channel][sender_nick]
                     await self.process_result(result, channel, sender_nick, is_private)
                     return
 
-                for i, cmd in enumerate(
-                    utils.regex_commands[::-1]
-                    if not utils.parse_order
-                    else utils.regex_commands
-                ):
+                for i, cmd in enumerate(utils.regex_commands[::-1] if not utils.parse_order else utils.regex_commands):
                     if matched:
                         break
                     for reg in cmd:
@@ -1328,11 +1286,10 @@ class IrcBot(object):
                                 if is_private and not utils.regex_commands_accept_pm[i]:
                                     continue
                                 await trio.sleep(0)
-                                result = await self._call_cb(cmd[reg], m)
+                                _message = Message(channel, sender_nick, msg, is_private)
+                                result = await self._call_cb(cmd[reg], _message, m)
                             if result:
-                                await self.process_result(
-                                    result, channel, sender_nick, is_private
-                                )
+                                await self.process_result(result, channel, sender_nick, is_private)
                                 matched = True
                             if utils.single_match:
                                 matched = True
@@ -1353,45 +1310,37 @@ class IrcBot(object):
                         m = re.match(reg, msg)  # , flags=re.IGNORECASE)
                         if m:
                             if cmd in utils.regex_commands_with_message:
-                                if (
-                                    is_private
-                                    and not utils.regex_commands_with_message_accept_pm[
-                                        i
-                                    ]
-                                ):
+                                if is_private and not utils.regex_commands_with_message_accept_pm[i]:
                                     continue
                                 debug("sending to", sender_nick)
                                 if utils.regex_commands_with_message_pass_data[i]:
                                     await trio.sleep(0)
+                                    _message = Message(
+                                        channel,
+                                        sender_nick,
+                                        msg,
+                                        is_private,
+                                        strip=self.strip_messages,
+                                    )
                                     result = await self._call_cb(
                                         cmd[reg],
+                                        _message,
                                         m,
-                                        Message(
-                                            channel,
-                                            sender_nick,
-                                            msg,
-                                            is_private,
-                                            strip=self.strip_messages,
-                                        ),
+                                        _message,
                                     )
                                 else:
                                     await trio.sleep(0)
-                                    result = await self._call_cb(
-                                        cmd[reg],
-                                        m,
-                                        Message(
-                                            channel,
-                                            sender_nick,
-                                            msg,
-                                            is_private,
-                                            strip=self.strip_messages,
-                                        ),
+                                    _message = Message(
+                                        channel,
+                                        sender_nick,
+                                        msg,
+                                        is_private,
+                                        strip=self.strip_messages,
                                     )
+                                    result = await self._call_cb(cmd[reg], _message, m, _message)
 
                             if result:
-                                await self.process_result(
-                                    result, channel, sender_nick, is_private
-                                )
+                                await self.process_result(result, channel, sender_nick, is_private)
                                 matched = True
                             if utils.single_match:
                                 matched = True
@@ -1413,7 +1362,8 @@ class IrcBot(object):
                         if utils.validateUrl(word):
                             await trio.sleep(0)
                             debug("Checking url: " + str(word))
-                            result = await self._call_cb(utils.url_commands[-1], word)
+                            _message = Message(channel, sender_nick, msg, is_private)
+                            result = await self._call_cb(utils.url_commands[-1], _message, word)
                         if result:
                             await self.send_message(result, channel)
 
@@ -1423,9 +1373,10 @@ class IrcBot(object):
             log("ERROR IN MAINLOOP: ", e)
             logger.exception(e)
 
-    async def _call_cb(self, cb, *args, **kwargs):
-        for middleware in self.middleware:
-            await middleware(self)
+    async def _call_cb(self, cb, message, *args, **kwargs):
+        if message is not None:
+            for middleware in self.middleware:
+                await middleware(self, message)
         if inspect.iscoroutinefunction(cb):
             return await cb(self, *args, **kwargs)
         return cb(*args, **kwargs)
