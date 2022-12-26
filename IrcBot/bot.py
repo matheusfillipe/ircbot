@@ -379,7 +379,7 @@ class IrcBot(object):
     def add_middleware(self, method):
         """Adds a middleware to run before every command.
 
-        :param method callable: Async method that will receive the this bot instance and the incoming message object for every command handling event.
+        :param method callable: Async method that will receive the this bot instance and the incoming message object for every command handling event. If this methods doesn't return True, then the callback execution stops.
         """
         self.middleware.append(method)
 
@@ -1376,7 +1376,9 @@ class IrcBot(object):
     async def _call_cb(self, cb, message, *args, **kwargs):
         if message is not None:
             for middleware in self.middleware:
-                await middleware(self, message)
+                resp = await middleware(self, message)
+                if not resp:
+                    return
         if inspect.iscoroutinefunction(cb):
             return await cb(self, *args, **kwargs)
         return cb(*args, **kwargs)

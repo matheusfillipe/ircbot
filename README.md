@@ -189,6 +189,34 @@ async def is_identified(bot: IrcBot, nick):
 
 Here we used a lower timeout because nickserv should reply faster than any user, the `cache_ttl` option will keep results cached for the given time, and `filter_func` must be a callable to be ran against any matched event (even if it is a cached result). The event will be only considered valid `if filter_func` (is True).
 
+### Middlewares
+
+Currently simple middlewares are supported for every event handler (regex or command). A middleware is an async function that will take the bot instance and the Message and this method will run before every handler. You can decide to proceed and call the handler if this method returns `True` or deny it if it returns `False` or `None`. On that case execution will be stopped.
+
+The method used to add a middleware function is: `bot.add_middleware(callback)`.
+
+Here is an example for not letting the bot respond to other bots by checking the "+B" mode flag:
+
+```python
+# define some handlers here with utils.arg_commands_with_message 
+# or utils.regex_commands_with_message or whatever....
+
+async def check_no_bot(bot: IrcBot, message: Message):
+    await bot.send_raw(f"WHO {message.nick}")
+    resp = await bot.wait_for("who", message.nick, timeout=10)
+    if "B" in resp["modes"]:
+        return False
+    return True
+
+async def on_connect(bot: IrcBot):
+    await bot.send_raw(f"MODE {bot.nick} +B")
+
+if __name__ == "__main__":
+    utils.setLogging(LEVEL, LOGFILE)
+    bot = IrcBot(HOST, PORT, NICK, CHANNELS, PASSWORD, strip_messages=False, use_ssl=SSL)
+    bot.add_middleware(check_no_bot)
+    bot.runWithCallback(on_connect)
+```
 
 
 ## Tips and tricks (logging, async, etc)
