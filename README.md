@@ -203,7 +203,7 @@ Here is an example for not letting the bot respond to other bots by checking the
 
 async def check_no_bot(bot: IrcBot, message: Message):
     await bot.send_raw(f"WHO {message.nick}")
-    resp = await bot.wait_for("who", message.nick, timeout=10)
+    resp = await bot.wait_for("who", message.nick, timeout=10, cache_ttl=10)
     if "B" in resp["modes"]:
         return False
     return True
