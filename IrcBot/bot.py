@@ -294,6 +294,7 @@ class IrcBot(object):
         self.dcc_ports = dcc_ports
         self.dcc_host = dcc_host
         self.dcc_announce_host = dcc_announce_host
+        self.middleware = []
         self._dcc_busy_ports = {}
         if self.dcc_host is False:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -376,6 +377,14 @@ class IrcBot(object):
         while not self.connected:
             await trio.sleep(1)
         await self.async_callback(self)
+
+    def add_middleware(self, method):
+        """
+        Adds a middleware to run before every command.
+
+        :param method callable: Async method that will receive the this bot instance for every command handling  event.
+        """
+        self.middleware.append(method)
 
     def run(self, async_callback=None):
         """Simply starts the bot.
@@ -1415,6 +1424,8 @@ class IrcBot(object):
             logger.exception(e)
 
     async def _call_cb(self, cb, *args, **kwargs):
+        for middleware in self.middleware:
+            await middleware(self)
         if inspect.iscoroutinefunction(cb):
             return await cb(self, *args, **kwargs)
         return cb(*args, **kwargs)
