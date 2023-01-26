@@ -2,7 +2,7 @@ import re
 import setuptools
 import subprocess
 
-VERSION = "1.6.4",
+VERSION = "1.6.5",
 BRANCH = "main"
 
 with open("README.md", "r", encoding="utf-8") as fh:
