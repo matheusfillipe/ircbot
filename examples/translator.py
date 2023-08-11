@@ -84,7 +84,7 @@ utils.setParseOrderTopBottom()
 # BOT COMMANDS DEFINITIONS                       #
 ##################################################
 
-from google_trans_new import google_trans_new, google_translator
+from googletrans import Translator as google_translator
 
 auto_nicks = {}
 
@@ -109,31 +109,23 @@ def trans(m, dst, src="auto", autodetect=True):
     proxy_index = None
     while proxy_index is None or proxy_index < len(PROXIES):
         translator = google_translator(
-            url_suffix="de",
             proxies={"http": PROXIES[proxy_index]} if proxy_index is not None else None
         )
         try:
-            if autodetect and translator.detect(m)[0] == dst:
-                logging.info("Ignoring source equals destination: " + m)
+            detected_lang = translator.detect(m).lang
+            if autodetect and detected_lang == dst:
+                logging.info("1. Ignoring source equals destination: " + m)
+                logging.info(f"Source: {detected_lang}  Destination: {dst}")
                 return
-            if autodetect and src != "auto" and not translator.detect(m)[0].startswith(src):
-                logging.info("Ignoring source equals destination: " + m)
+            if autodetect and src != "auto" and not detected_lang.startswith(src):
+                logging.info("2. Ignoring source equals destination: " + m)
+                logging.info(f"Source: {detected_lang}  Destination: {dst}")
                 return
-            msg = translator.translate(m, lang_tgt=dst, lang_src=src)
-            return head + str(msg)
-        except google_trans_new.google_new_transError as e:
-            import sys
-            import traceback
+            msg = translator.translate(m, dest=dst, src=src)
+            return head + str(msg.text)
+        except Exception as e:
+            return str(e)
 
-            print(
-                traceback.format_exception(type(e), e, e.__traceback__),
-                file=sys.stderr,
-                flush=True,
-            )
-            print("-" * 80)
-            proxy_index = 0 if proxy_index is None else proxy_index
-            proxy_index += 1
-            print(f"Failed... Trying proxy: {PROXIES[proxy_index]}")
 
 
 def translate(m, message, dst, src="auto", autodetect=True):
