@@ -4,18 +4,19 @@ from IrcBot.bot import IrcBot, utils, Color
 
 @utils.arg_command("echo")
 def echo(args, message):
-    return Color("noooh", Color.random())
+    return Color("yeaah", Color.random())
 
 @utils.regex_cmd("^hi")
 def hi(*args):
-    return "Hi!"
+    return "hello!"
 
 @utils.arg_command("reload")
 async def reload(bot, args, message):
     await bot.hot_reload()
     return "Reloaded"
 
-utils.setPrefix(r"echobot\s+")
+utils.setPrefix("!")
+
 
 async def onConnect(bot: IrcBot):
     await bot.join("#bots")

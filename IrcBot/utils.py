@@ -8,6 +8,7 @@ import os
 import re
 import sys
 from functools import wraps
+from typing import Callable, TypeVar
 
 has_validators = False
 try:
@@ -29,13 +30,40 @@ regex_commands = []
 regex_commands_accept_pm = []
 
 # HOT RELOAD
-hot_reload_env = os.environ.get("IRCBOT_HOT_RELOAD", False) not in ["False", "0", "false"]
+hot_reload_env = os.environ.get("IRCBOT_HOT_RELOAD", "False").lower() in ["true", "1", "yes", "on"]
 hot_reload_files = set()
+hot_reload_hash_map = {}
+
+
+def md5_file(file):
+    import hashlib
+
+    with open(file, "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()
+
+
+def _hot_reload_if_changed():
+    """Checks if any of the files in hot_reload_files has changed and if so
+    Only works if hot_reload_env is True.
+
+    :return: True if any file has changed
+    """
+    if hot_reload_env:
+        for module_path in hot_reload_files:
+            new_hash = md5_file(module_path)
+            current_hash = hot_reload_hash_map.get(module_path, None)
+            hot_reload_hash_map[module_path] = new_hash
+            if new_hash != current_hash and current_hash is not None:
+                log(f"Reloading due changes to {module_path}")
+                _hot_reload()
+                return True
+    return False
 
 
 def _add_hot_reload(func):
     """Adds full path to file of function to hot_reload_files set."""
-    hot_reload_files.add(inspect.getfile(func))
+    module_path = inspect.getfile(func)
+    hot_reload_files.add(module_path)
 
 
 def regex_cmd(filters, acccept_pms=True, **kwargs):
@@ -53,9 +81,9 @@ def regex_cmd(filters, acccept_pms=True, **kwargs):
         def wrapped(*a, **bb):
             return func(*a, **bb)
 
+        _add_hot_reload(func)
         regex_commands.append({filters: func})
         regex_commands_accept_pm.append(acccept_pms)
-        _add_hot_reload(func)
         return wrapped
 
     return wrap_cmd
@@ -82,10 +110,10 @@ def regex_cmd_with_messsage(filters, acccept_pms=True, pass_data=False, **kwargs
         def wrapped(*a, **bb):
             return func(*a, **bb)
 
+        _add_hot_reload(func)
         regex_commands_with_message.append({filters: func})
         regex_commands_with_message_accept_pm.append(acccept_pms)
         regex_commands_with_message_pass_data.append(pass_data)
-        _add_hot_reload(func)
         return wrapped
 
     return wrap_cmd
@@ -105,8 +133,8 @@ def url_handler(**kwargs):
         def wrapped(*a, **bb):
             return func(*a, **bb)
 
-        url_commands.append(func)
         _add_hot_reload(func)
+        url_commands.append(func)
         return wrapped
 
     return wrap_cmd
@@ -194,6 +222,7 @@ def arg_command(
         def wrapped(*a, **bb):
             return func(*a, **bb)
 
+        _add_hot_reload(func)
         arg_commands_with_message[command] = {
             "function": func,
             "acccept_pms": acccept_pms,
@@ -203,7 +232,6 @@ def arg_command(
             "simplify": simplify,
         }
 
-        _add_hot_reload(func)
         return wrapped
 
     return wrap_cmd
@@ -469,21 +497,23 @@ def m2list(args):
     return [args[i] for i in range(1, _command_max_arguments) if args[i]]
 
 
-def hot_reload():
+def _hot_reload():
     """Reloads all files in hot_reload_files setting regex_commands, regex_commands_with_message, url_commands, custom_handlers"""
-    global regex_commands, regex_commands_with_message, arg_commands_with_message, url_commands, custom_handlers
-    initial_state = (
-        regex_commands.copy(),
-        regex_commands_with_message.copy(),
-        arg_commands_with_message.copy(),
-        url_commands.copy(),
-        custom_handlers.copy(),
-    )
-    regex_commands.clear()
-    regex_commands_with_message.clear()
-    arg_commands_with_message.clear()
-    url_commands.clear()
-    custom_handlers.clear()
+    global regex_commands, regex_commands_accept_pm, regex_commands_with_message, regex_commands_with_message_accept_pm, regex_commands_with_message_pass_data, url_commands, arg_commands_with_message, custom_handlers
+    state = [
+        regex_commands,
+        regex_commands_accept_pm,
+        regex_commands_with_message,
+        regex_commands_with_message_accept_pm,
+        regex_commands_with_message_pass_data,
+        url_commands,
+        arg_commands_with_message,
+        custom_handlers,
+    ]
+    initial_state = []
+    for s in state:
+        initial_state.append(s.copy())
+        s.clear()
 
     for file in hot_reload_files:
         # skip current file
@@ -499,13 +529,10 @@ def hot_reload():
             else:
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-        except Exception as e:
-            (
-                regex_commands,
-                regex_commands_with_message,
-                arg_commands_with_message,
-                url_commands,
-                custom_handlers,
-            ) = initial_state
+
+        except (Exception, SyntaxError) as e:
             log(f"Error reloading {file}: {e}")
+            for i, s in enumerate(state):
+                s.clear()
+                s = initial_state[i]
             raise e

@@ -332,13 +332,12 @@ class IrcBot(object):
 
     async def hot_reload(self):
         """Reload the handlers."""
-        utils.hot_reload()
+        utils._hot_reload()
         self.custom_handlers.update(utils.custom_handlers)
         if utils.arg_commands_with_message:
             new_commands = deepcopy(utils._defined_command_dict)
             new_commands.update(utils.arg_commands_with_message)
             utils.setCommands(new_commands, prefix=utils.command_prefix)
-
 
     async def _mainloop(self, async_callback=None):
         self.is_running_with_callback = True if async_callback else None
@@ -645,19 +644,19 @@ class IrcBot(object):
                 async for data in s:
                     try:
                         data = data.decode("utf-8")
-                        debug(
-                            "\n>>>> DECODED DATA FROM SERVER: \n",
-                            60 * "-",
-                            "\n",
-                            f"{data=}\n",
-                            60 * "-",
-                            "\n",
-                        )
-                        self.fetch_tables()
-                        for msg in data.split("\r\n"):
-                            nursery.start_soon(self.data_handler, s, msg)
                     except UnicodeDecodeError:
                         pass
+                    debug(
+                        "\n>>>> DECODED DATA FROM SERVER: \n",
+                        60 * "-",
+                        "\n",
+                        f"{data=}\n",
+                        60 * "-",
+                        "\n",
+                    )
+                    self.fetch_tables()
+                    for msg in data.split("\r\n"):
+                        nursery.start_soon(self.data_handler, s, msg)
 
     async def process_result(self, result, channel, sender_nick, is_private):
         if type(result) == ReplyIntent:
@@ -994,6 +993,9 @@ class IrcBot(object):
         nick = self.nick
         host = self.host
         self.connected = True
+
+        if utils._hot_reload_if_changed():
+            await self.hot_reload()
 
         IRC_P = {
             # DCC
