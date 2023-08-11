@@ -330,6 +330,16 @@ class IrcBot(object):
         if not self.username:
             self.username = self.nick
 
+    async def hot_reload(self):
+        """Reload the handlers."""
+        utils.hot_reload()
+        self.custom_handlers.update(utils.custom_handlers)
+        if utils.arg_commands_with_message:
+            new_commands = deepcopy(utils._defined_command_dict)
+            new_commands.update(utils.arg_commands_with_message)
+            utils.setCommands(new_commands, prefix=utils.command_prefix)
+
+
     async def _mainloop(self, async_callback=None):
         self.is_running_with_callback = True if async_callback else None
         self.async_callback = async_callback

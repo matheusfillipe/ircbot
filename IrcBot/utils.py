@@ -1,9 +1,11 @@
 # TODO make a class instead of this globals crap
 
 import collections
+import importlib.util
+import inspect
 import logging
+import os
 import re
-import struct
 import sys
 from functools import wraps
 
@@ -26,6 +28,15 @@ parse_order = False
 regex_commands = []
 regex_commands_accept_pm = []
 
+# HOT RELOAD
+hot_reload_env = os.environ.get("IRCBOT_HOT_RELOAD", False) not in ["False", "0", "false"]
+hot_reload_files = set()
+
+
+def _add_hot_reload(func):
+    """Adds full path to file of function to hot_reload_files set."""
+    hot_reload_files.add(inspect.getfile(func))
+
 
 def regex_cmd(filters, acccept_pms=True, **kwargs):
     """regex_cmd. The function should take a match object from the re python
@@ -44,6 +55,7 @@ def regex_cmd(filters, acccept_pms=True, **kwargs):
 
         regex_commands.append({filters: func})
         regex_commands_accept_pm.append(acccept_pms)
+        _add_hot_reload(func)
         return wrapped
 
     return wrap_cmd
@@ -73,6 +85,7 @@ def regex_cmd_with_messsage(filters, acccept_pms=True, pass_data=False, **kwargs
         regex_commands_with_message.append({filters: func})
         regex_commands_with_message_accept_pm.append(acccept_pms)
         regex_commands_with_message_pass_data.append(pass_data)
+        _add_hot_reload(func)
         return wrapped
 
     return wrap_cmd
@@ -93,6 +106,7 @@ def url_handler(**kwargs):
             return func(*a, **bb)
 
         url_commands.append(func)
+        _add_hot_reload(func)
         return wrapped
 
     return wrap_cmd
@@ -137,13 +151,11 @@ single_match = False
 command_prefix = "!"
 _command_max_arguments = 25
 _NonSpace = r"\S"
-re_command = (
-    lambda cmd, acccept_pms=True, pass_data=False, **kwargs: regex_cmd_with_messsage(
-        f"^{command_prefix}{cmd}{f'(?: +({_NonSpace}+))?'*_command_max_arguments} *$",
-        acccept_pms,
-        pass_data,
-        **kwargs,
-    )
+re_command = lambda cmd, acccept_pms=True, pass_data=False, **kwargs: regex_cmd_with_messsage(
+    f"^{command_prefix}{cmd}{f'(?: +({_NonSpace}+))?'*_command_max_arguments} *$",
+    acccept_pms,
+    pass_data,
+    **kwargs,
 )
 
 arg_commands_with_message = {}
@@ -190,6 +202,8 @@ def arg_command(
             "command_help": command_help,
             "simplify": simplify,
         }
+
+        _add_hot_reload(func)
         return wrapped
 
     return wrap_cmd
@@ -259,9 +273,9 @@ def _reg_word(org, pref):
     opt_close = r")?"
     return (
         re.escape(pref)
-        + opt_open * (len([re.escape(c) for c in org[len(pref):]]) > 0)
-        + opt_open.join([re.escape(c) for c in org[len(pref):]])
-        + opt_close * len(org[len(pref):])
+        + opt_open * (len([re.escape(c) for c in org[len(pref) :]]) > 0)
+        + opt_open.join([re.escape(c) for c in org[len(pref) :]])
+        + opt_close * len(org[len(pref) :])
     )
 
 
@@ -322,9 +336,7 @@ def setCommands(command_dict: dict, simplify=None, prefix="!"):
                 acccept_pms=True if "acccept_pms" not in cb else cb["acccept_pms"],
                 pass_data=False if "pass_data" not in cb else cb["pass_data"],
             )(cb["function"])
-            help_msg[cmd] = (
-                f"{command_prefix}{cmd}: {cb['help']}" if "help" in cb else ""
-            )
+            help_msg[cmd] = f"{command_prefix}{cmd}: {cb['help']}" if "help" in cb else ""
 
             if "command_help" in cb and cb["command_help"]:
                 commands_help[cmd] = cb["command_help"]
@@ -334,16 +346,12 @@ def setCommands(command_dict: dict, simplify=None, prefix="!"):
         elif isinstance(cb, collections.abc.Callable):
             re_command(expression)(cb)
         else:
-            logging.error(
-                "You passed a wrong data type on setCommands for command: %s", cmd
-            )
+            logging.error("You passed a wrong data type on setCommands for command: %s", cmd)
             sys.exit(1)
 
     _defined_command_dict = command_dict
     if help_msg or commands_help:
-        _commands = findShortestPrefix(
-            [c for c in command_dict.keys() if not not_regex(c)] + ["help"]
-        )
+        _commands = findShortestPrefix([c for c in command_dict.keys() if not not_regex(c)] + ["help"])
 
         def help_menu(args, message):
             channel = message.channel
@@ -359,10 +367,7 @@ def setCommands(command_dict: dict, simplify=None, prefix="!"):
                     txt = list(help_msg.values())[0]
                     return (
                         help_msg_header
-                        + [
-                            Message(channel, message=after + txt + before)
-                            for txt in help_msg.values()
-                        ]
+                        + [Message(channel, message=after + txt + before) for txt in help_msg.values()]
                         + help_msg_bottom
                     )
                 else:
@@ -383,6 +388,7 @@ def setPrefix(prefix):
     global command_prefix
     command_prefix = prefix
 
+
 def setSingleMatch(singleMatch: bool):
     """Defines if there will be only one command handler called. If false all regex and arg_commands will be matched against the user input.
     :param singleMatch: If true there will be only one match per command. Defaults to False (all matches will be called)
@@ -390,6 +396,7 @@ def setSingleMatch(singleMatch: bool):
     """
     global single_match
     single_match = singleMatch
+
 
 def setParseOrderTopBottom(top_bottom: bool = True):
     """setParseOrder.
@@ -455,10 +462,50 @@ def validateUrl(url):
     if has_validators:
         return validators.url(url)
     else:
-        log(
-            "You do not have the validators module installed! run `pip install validators` to use this functionality"
-        )
+        log("You do not have the validators module installed! run `pip install validators` to use this functionality")
 
 
 def m2list(args):
     return [args[i] for i in range(1, _command_max_arguments) if args[i]]
+
+
+def hot_reload():
+    """Reloads all files in hot_reload_files setting regex_commands, regex_commands_with_message, url_commands, custom_handlers"""
+    global regex_commands, regex_commands_with_message, arg_commands_with_message, url_commands, custom_handlers
+    initial_state = (
+        regex_commands.copy(),
+        regex_commands_with_message.copy(),
+        arg_commands_with_message.copy(),
+        url_commands.copy(),
+        custom_handlers.copy(),
+    )
+    regex_commands.clear()
+    regex_commands_with_message.clear()
+    arg_commands_with_message.clear()
+    url_commands.clear()
+    custom_handlers.clear()
+
+    for file in hot_reload_files:
+        # skip current file
+        if file == __file__:
+            continue
+        log(f"Reloading {file}")
+        try:
+            module_name = os.path.basename(file).split(".")[0]
+            spec = importlib.util.spec_from_file_location(module_name, file)
+            if spec is None:
+                log(f"Error reloading {file}: spec is None")
+                continue
+            else:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+        except Exception as e:
+            (
+                regex_commands,
+                regex_commands_with_message,
+                arg_commands_with_message,
+                url_commands,
+                custom_handlers,
+            ) = initial_state
+            log(f"Error reloading {file}: {e}")
+            raise e
