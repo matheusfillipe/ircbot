@@ -530,7 +530,7 @@ def _hot_reload():
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
 
-        except (Exception, SyntaxError) as e:
+        except Exception as e:
             log(f"Error reloading {file}: {e}")
             for i, s in enumerate(state):
                 s.clear()

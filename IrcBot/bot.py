@@ -994,8 +994,12 @@ class IrcBot(object):
         host = self.host
         self.connected = True
 
-        if utils._hot_reload_if_changed():
-            await self.hot_reload()
+        try:
+            if utils._hot_reload_if_changed():
+                await self.hot_reload()
+        except Exception as e:
+            log(f"Error in hot reload: {str(e)}")
+            logger.exception(e)
 
         IRC_P = {
             # DCC
