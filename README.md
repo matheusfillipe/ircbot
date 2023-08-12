@@ -4,9 +4,9 @@
 # re-ircbot, a simple irc bot library
 
 This is a simple irc bot library that uses trio for async callback processing and allows you to
-use persistent data based on user's nick and channels. The callbacks for
-commands are defined by regular expressions. You might want to take a look on
-the examples folder.
+use persistent data based on user's nick and channels. The callbacks for commands are defined by regular expressions. 
+
+It even features hot reloading for the best development experience! You might want to take a look on the examples folder.
 
 ## How to install 
 
@@ -248,6 +248,26 @@ def echo(msg):
 def include(m, message):
     return ReplyIntent(Message(channel=message.sender_nick, sender_nick=message.sender_nick, message="Hello! echo mode activated"), echo)
 ```
+
+## Hot reload
+
+You can hot reload your bot with a command like:
+
+```python
+@utils.arg_command("reload")
+async def reload(bot, args, message):
+    await bot.hot_reload()
+    return "Reloaded"
+```
+
+Or you can have it automatically track file changes using the environment variable `IRCBOT_HOT_RELOAD` for example:
+
+```bash
+IRCBOT_HOT_RELOAD=true python examples/hotreload.py                                                                                                                           <<<
+```
+
+On this mode it will automatically check and refresh when a new command is issued. Make sure to only use this in development mode!
+
 
 ## FAQ
 
