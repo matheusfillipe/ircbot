@@ -28,7 +28,7 @@ def exec(cmd):
 def git_version_tag():
     """Get the current git version tag"""
     branch = exec("git rev-parse --abbrev-ref HEAD")
-    version = re.match(r"^v[0-9]+(\.[0-9]+)*$", exec("git describe --tags --abbrev=0"))
+    version = re.match(r"^v[0-9]+(\.[0-9]+)*.*$", exec("git describe --tags --abbrev=0"))
     if branch == BRANCH and version:
         return version[0][1:]
     else:
@@ -37,7 +37,7 @@ def git_version_tag():
 
 requirements = requirements()
 
-VERSION = git_version_tag()
+# VERSION = git_version_tag()
 print(f"BUILDING Version: {VERSION}")
 
 setuptools.setup(

@@ -72,12 +72,15 @@ jobs:
           command: |
             git clone https://github.com/matheusfillipe/ircbot.git .
             git fetch --all
+            git checkout $CIRCLE_BRANCH
+            git checkout $CIRCLE_TAG
       - run:
           name: install python dependencies
           command: |
             python3 -m venv venv
             . venv/bin/activate
             pip install -r requirements.txt
+            pip install setuptools
       - run:
           name: init .pypirc
           command: |
@@ -94,4 +97,4 @@ jobs:
           name: upload to pypi
           command: |
             pip install twine
-            twine upload dist/*
+            twine upload --verbose dist/*
