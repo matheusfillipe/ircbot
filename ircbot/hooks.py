@@ -175,7 +175,7 @@ class HookHandler:
     def re_command(self, cmd, acccept_pms=True, pass_data=False, **kwargs):
         non_space: str = r"\S"
         return self.regex_cmd_with_messsage(
-            f"^{self.command_prefix}{cmd}{f'(?: +({non_space}+))?'*self._command_max_arguments} *$",
+            rf"^{re.escape(self.command_prefix)}{cmd}{f'(?: +({non_space}+))?'*self._command_max_arguments} *$",
             acccept_pms,
             pass_data,
             **kwargs,
