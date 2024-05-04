@@ -3,7 +3,7 @@ import socket
 import struct
 from enum import Enum
 
-from IrcBot.utils import debug, log
+from ircbot.utils import debug, log
 
 BUFFSIZE = 2048
 
@@ -83,9 +83,7 @@ class DccHelper:
         self.port = port
         self.size = size
         self.token = token
-        self.is_passive = (
-            self.token is not None
-        )  # and self.port == 0 or self.ip == "1.1.1.1" ?
+        self.is_passive = self.token is not None  # and self.port == 0 or self.ip == "1.1.1.1" ?
         self.download_progress = 0
 
     def to_message(self):

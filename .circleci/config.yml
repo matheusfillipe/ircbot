@@ -7,15 +7,15 @@ workflows:
             tags:
               only: /.*/
       - test-python-install:
-          version: "3.8"
-          requires:
-            - build
-      - test-python-install:
-          version: "3.9"
-          requires:
-            - build
-      - test-python-install:
           version: "3.10"
+          requires:
+            - build
+      - test-python-install:
+          version: "3.11"
+          requires:
+            - build
+      - test-python-install:
+          version: "3.12"
           requires:
             - build
       - deploy:
@@ -23,14 +23,14 @@ workflows:
             - build
           filters:
             tags:
-              only: /^v[0-9]+(\.[0-9]+)*$/
+              only: /^v[0-9]+(\.[0-9]+)*.*$/
             branches:
               ignore: /.*/
 
 jobs:
   build:
     docker:
-      - image: cimg/python:3.9
+      - image: cimg/python:3.12
     steps:
       - checkout
       - run:
@@ -65,7 +65,7 @@ jobs:
 
   deploy:
     docker:
-      - image: cimg/python:3.9
+      - image: cimg/python:3.12
     steps:
       - run:
           name: Checkout

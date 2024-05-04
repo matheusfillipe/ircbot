@@ -13,6 +13,7 @@
 #########################################################################
 
 
+import asyncio
 import inspect
 import random
 import re
@@ -21,9 +22,8 @@ from copy import copy, deepcopy
 from functools import partial
 from math import ceil
 from pathlib import Path
+from typing import Awaitable, Callable, TypeAlias
 
-import trio
-import trio_asyncio
 from cachetools import TTLCache
 
 from ircbot import dcc, utils
@@ -208,59 +208,100 @@ class PersistentData(object):
         self._queue = []
 
 
-class IrcBot(object):
-    """IrcBot."""
+class TCPStream:
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        self.reader = reader
+        self.writer = writer
+
+    async def send_all(self, data: bytes):
+        self.writer.write(data)
+        await self.writer.drain()
+
+    async def recv(self, n: int = 2048) -> bytes:
+        return await self.reader.read(n)
+
+    async def aclose(self):
+        self.writer.close()
+        await self.writer.wait_closed()
+
+    def close(self):
+        self.writer.close()
+
+
+class IrcBot:
+    AsyncCallback = Callable[["IrcBot"], Awaitable[None]]
+    Sendable: TypeAlias = str | Message | Color | list[str | Message | Color]
+
+    nick: str
+    password: str
+    server_password: str | None
+    username: str
+    host: str
+    port: int
+    channels: list[str] | str
+    use_sasl: bool
+    use_ssl: bool
+    tables: list[PersistentData]
+    delay: int
+    accept_join_from: list[str]
+    custom_handlers: dict
+    strip_messages: bool
+    dcc_ports: list[int]
+    dcc_host: str | None
+    dcc_announce_host: str | None
+    middleware: list[Callable]
+    _dcc_busy_ports: dict
+    connected: bool
+    server_channels: dict
+    channel_names: dict
+    replyIntents: dict
+    ping_delay: int
+    is_running_with_callback: bool
+    async_callback: AsyncCallback | None
+    retry_connecting: bool
+    message_queue: asyncio.Queue[str]
+    db_operation_queue: asyncio.Queue[PersistentData]
+    stream: TCPStream
 
     def __init__(
         self,
-        host,
-        port=6667,
-        nick="bot",
-        channels=None,
-        username=None,
-        password="",
-        server_password="",
-        use_sasl=False,
-        use_ssl=False,
-        delay=False,
-        accept_join_from=None,
-        tables=None,
-        custom_handlers=None,
-        strip_messages=True,
-        dcc_ports=None,
-        dcc_host=False,
-        dcc_announce_host=None,
+        host: str,
+        port: int = 6667,
+        nick: str = "bot",
+        channels: list[str] | str | None = None,
+        username: str | None = None,
+        password: str = "",
+        server_password: str = "",
+        use_sasl: bool = False,
+        use_ssl: bool = False,
+        delay: int = 0,
+        accept_join_from: list[str] | None = None,
+        tables: list[PersistentData] | None = None,
+        custom_handlers: dict | None = None,
+        strip_messages: bool = True,
+        dcc_ports: list[int] | None = None,
+        dcc_host: str | None = None,
+        dcc_announce_host: str | None = None,
     ):
         """Creates a bot instance joining to the channel if specified.
 
         :param host: str. Server hostname. ex: "irc.freenode.org"
-        :param port: int. Server port. default 6665
+        :param port: int. Server port.
         :param nick: str. Bot nickname. If this is set but username is not set then this will be used as the username for authentication if password is set.
-        :param channel: List of strings of channels to join or string for a single channel. You can leave this empty can call .join manually.
-        :param username: str. Username for authentication.
+        :param channels: list[str] or None. List of strings of channels to join or string for a single channel. You can leave this empty can call .join manually.
+        :param username: str or None. Username for authentication.
         :param password: str. Password for authentication.
         :param server_password: str. Authenticate with the server.
         :param use_sasl: bool. Use sasl autentication. (Still not working. Don't use this!)
         :param delay: int. Delay after nickserv authentication
-        :param accept_join_from: str. Who to accept invite command from ([])
-        :param tables: List of persistentData to be registered on the bot.
+        :param accept_join_from: list[str] or None. Who to accept invite command from ([])
+        :param tables: list[persistentData] or None. List of persistentData to be registered on the bot.
         :param strip_messages: bool. Should messages be stripped (for *_with_message decorators)
-        :param custom_handlers:{type: function, ...} Dict with function values to be called to handle custom server messages. Possible types (keys) are:
-            type             kwargs
-            'privmsg' -> {'nick', 'channel', 'text'}
-            'ping' -> {'ping'}
-            'names' -> {'channel', 'names'}
-            'channel' -> {'channel', 'channeldescription'}
-            'join' -> {'nick', 'channel'}
-            'quit' -> {'nick', 'text'}
-            'part' -> {'nick', 'channel'}
-            'dccsend' -> {'nick', 'filename', 'ip', 'port', 'size', 'token'}
-        :param dcc_ports: list of ports numbers to use for dcc
-        :param dcc_host: ip address to bind to for passive dcc file receiving and dcc send.
-        :param dcc_announce_host: ip address to announce for passive dcc file receiving and dcc send.
-        type: str ip or None to bind to the wildcard address. Default will try to guess (LAN IP)
+        :param custom_handlers: dict or None. Custom handlers to be added to the bot.
+        :param dcc_ports: list[int] or None. List of ports numbers to use for dcc
+        :param dcc_host: str or None. ip address to bind to for passive dcc file receiving and dcc send. type: str ip or None to bind to the wildcard address. Default will try to guess (LAN IP)
+        :param dcc_announce_host: str or None. ip address to announce for passive dcc file receiving and dcc send.
         """
-
         if channels is None:
             channels = []
         if accept_join_from is None:
@@ -277,7 +318,7 @@ class IrcBot(object):
         self.nick = nick
         self.password = password
         self.server_password = server_password
-        self.username = username
+        self.username = username or self.nick
         self.host = host
         self.port = port
         self.channels = channels
@@ -312,12 +353,8 @@ class IrcBot(object):
             new_commands.update(utils.arg_commands_with_message)
             utils.set_commands(new_commands, prefix=utils.command_prefix)
 
-        (
-            self.send_message_channel,
-            self.receive_message_channel,
-            self.send_db_operation_channel,
-            self.receive_db_operation_channel,
-        ) = [None] * 4
+        self.message_queue = asyncio.Queue()
+        self.db_operation_queue = asyncio.Queue()
         self.replyIntents = {}
 
         self.ping_delay = 30  # seconds
@@ -325,10 +362,6 @@ class IrcBot(object):
         self.is_running_with_callback = False
         self.async_callback = None
         self.retry_connecting = False
-        self.nursery = None
-
-        if not self.username:
-            self.username = self.nick
 
     async def hot_reload(self):
         """Reload the handlers."""
@@ -339,51 +372,38 @@ class IrcBot(object):
             new_commands.update(utils.arg_commands_with_message)
             utils.set_commands(new_commands, prefix=utils.command_prefix)
 
-    async def _mainloop(self, async_callback=None):
-        self.is_running_with_callback = True if async_callback else None
+    async def _mainloop(self, async_callback: AsyncCallback):
+        self.is_running_with_callback = bool(async_callback)
         self.async_callback = async_callback
         while True:
-            (
-                self.send_message_channel,
-                self.receive_message_channel,
-            ) = trio.open_memory_channel(0)
-            (
-                self.send_db_operation_channel,
-                self.receive_db_operation_channel,
-            ) = trio.open_memory_channel(0)
             try:
-                async with trio.open_nursery() as nursery:
-                    self.nursery = await nursery.start(self._main_task)
+                await self._main_task()
             except (BotConnectionError, socket.gaierror):
-                log(f"Attempting to reconnect in {self.ping_delay}...")
-                await trio.sleep(self.ping_delay)
+                log(f"Attempting to reconnect in {self.ping_delay / 2}...")
+                await asyncio.sleep(self.ping_delay / 2)
 
-    async def _main_task(self, task_status=trio.TASK_STATUS_IGNORED):
-        async with trio.open_nursery() as nursery:
-            with trio.CancelScope() as scope:
-                task_status.started(scope)
-                if self.async_callback is None:
-                    self.nursery = nursery.start_soon(self.connect)
-                else:
-                    self.nursery = nursery.start_soon(self.start_with_callback)
+    async def _main_task(self):
+        if self.async_callback is None:
+            await self.connect()
+        else:
+            await self.start_with_callback()
 
-    def run_with_callback(self, async_callback):
+    def run_with_callback(self, async_callback: AsyncCallback):
         """starts the bot with an async callback.
 
         Useful if you want to use bot.send without user interaction.
         param: async_callback: async function to be called.
         """
-        trio_asyncio.run(self._mainloop, async_callback)
+        asyncio.run(self._mainloop(async_callback))
 
     async def start_with_callback(self):
-        async with trio.open_nursery() as nursery:
-            nursery.start_soon(self.connect)
-            nursery.start_soon(self._wait_and_async_cb_task)
+        await asyncio.gather(self.connect(), self._wait_and_async_cb_task())
 
     async def _wait_and_async_cb_task(self):
         while not self.connected:
-            await trio.sleep(1)
-        await self.async_callback(self)
+            await asyncio.sleep(1)
+        if self.async_callback:
+            await self.async_callback(self)
 
     def add_middleware(self, method):
         """Adds a middleware to run before every command.
@@ -392,25 +412,26 @@ class IrcBot(object):
         """
         self.middleware.append(method)
 
-    def run(self, async_callback=None):
+    def run(self, async_callback: AsyncCallback):
         """Simply starts the bot.
 
         param: async_callback: async function to be called.
         """
-        trio_asyncio.run(self._mainloop, async_callback)
+        asyncio.run(self._mainloop(async_callback))
 
     async def sleep(self, time):
         """Waits for time.
 
         Asynchronous wrapper for trip.sleep
         """
-        await trio.sleep(time)
+        await asyncio.sleep(time)
 
-    async def ping_confirmation(self, s):
+    async def ping_confirmation(self, stream: TCPStream):
         MAX = 10
         c = 0
         log("AWAITING PING CONFIRMATION.....")
-        async for data in s:
+        while True:
+            data = await stream.recv()
             data = data.decode("utf-8")
             for msg in data.split("\r\n"):
                 debug("RECV --------- " + msg)
@@ -421,7 +442,7 @@ class IrcBot(object):
                 if data.find("PING") != -1 and len(data.split(":")) >= 2:
                     msg = str("PONG :" + data.split(":")[-1])
                     debug("Registration pong: ", msg)
-                    await s.send_all(msg.encode())
+                    await stream.send_all(msg.encode())
                     return
                 c += 1
 
@@ -431,77 +452,77 @@ class IrcBot(object):
         if self.use_ssl:
             log("Using SSL connection")
             import ssl
-
-            ssl_context = ssl.SSLContext()
-            s = await trio.open_ssl_over_tcp_stream(
-                remote_ip, self.port, https_compatible=True, ssl_context=ssl_context
-            )
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            reader, writer = await asyncio.open_connection(remote_ip, self.port, ssl=ssl_context)
         else:
-            s = await trio.open_tcp_stream(remote_ip, self.port)
+            reader, writer = await asyncio.open_connection(remote_ip, self.port)
+
         log("connected to: ", self.host, self.port)
+        stream = TCPStream(reader, writer)
 
-        async with s:
-            if self.use_sasl:
-                await s.send_all(("CAP REQ :sasl").encode())
+        if self.use_sasl:
+            # TODO: Implement SASL
+            await stream.send_all(("CAP REQ :sasl").encode())
 
-            if self.server_password:
-                pw_cr = ("PASS " + self.server_password + "\r\n").encode()
-                await s.send_all(pw_cr)
+        if self.server_password:
+            pw_cr = ("PASS " + self.server_password + "\r\n").encode()
+            await stream.send_all(pw_cr)
 
-            nick_cr = ("NICK " + self.nick + "\r\n").encode()
-            await s.send_all(nick_cr)
+        nick_cr = ("NICK " + self.nick + "\r\n").encode()
+        await stream.send_all(nick_cr)
 
-            usernam_cr = ("USER " + " ".join([self.username] * 3) + " :" + self.nick + " \r\n").encode()
-            await s.send_all(usernam_cr)
+        usernam_cr = ("USER " + " ".join([self.username] * 3) + " :" + self.nick + " \r\n").encode()
+        await stream.send_all(usernam_cr)
 
-            ping_confirmed = False
-            try:
-                with trio.fail_after(5):
-                    await self.ping_confirmation(s)
-                    ping_confirmed = True
-                    log("SUBMITTING PING COOKIE CONFIRMATION")
-            except trio.TooSlowError:
-                log("NO PING CONFIRMATION!!!!!")
+        try:
+            async with asyncio.timeout(5):
+                await self.ping_confirmation(stream)
+                log("SUBMITTING PING COOKIE CONFIRMATION")
+        except asyncio.TimeoutError:
+            log("NO PING CONFIRMATION!!!!!")
 
-            if self.password:
-                log("IDENTIFYING")
-                auth_cr = ("PRIVMSG NickServ :IDENTIFY " + self.password + "\r\n").encode()
-                await s.send_all(auth_cr)
+        if self.password:
+            log("IDENTIFYING")
+            auth_cr = ("PRIVMSG NickServ :IDENTIFY " + self.password + "\r\n").encode()
+            await stream.send_all(auth_cr)
 
-            if self.delay:
-                await trio.sleep(self.delay)
-            if self.use_sasl:
-                import base64
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.use_sasl:
+            import base64
 
-                await s.send_all(("AUTHENTICATE PLAIN").encode())
-                sep = "\x00"
-                b = base64.b64encode((self.nick + sep + self.nick + sep + self.password).encode("utf8")).decode("utf8")
-                data = s.recv(4096).decode("utf-8")
-                log("Server SAYS: ", data)
-                await s.send_all(("AUTHENTICATE " + b).encode())
-                log("PERFORMING SASL PLAIN AUTH....")
-                data = s.recv(4096).decode("utf-8")
-                log("Server SAYS: ", data)
-                data = s.recv(4096).decode("utf-8")
-                log("Server SAYS: ", data)
-                await s.send_all(("CAP END").encode())
+            await stream.send_all(("AUTHENTICATE PLAIN").encode())
+            sep = "\x00"
+            b = base64.b64encode((self.nick + sep + self.nick + sep + self.password).encode("utf8")).decode("utf8")
+            data = (await stream.recv(4096)).decode("utf-8")
+            log("Server SAYS: ", data)
+            await stream.send_all(("AUTHENTICATE " + b).encode())
+            log("PERFORMING SASL PLAIN AUTH....")
+            data = (await stream.recv(4096)).decode("utf-8")
+            log("Server SAYS: ", data)
+            data = (await stream.recv(4096)).decode("utf-8")
+            log("Server SAYS: ", data)
+            await stream.send_all(("CAP END").encode())
 
-            self.s = s
-            if type(self.channels) == list:
-                for c in self.channels:
-                    await self.join(c)
-            else:
-                await self.join(self.channels)
-                self.channels = [self.channels]
+        self.stream = stream
+        if isinstance(self.channels, list):
+            for c in self.channels:
+                await self.join(c)
+        elif isinstance(self.channels, str):
+            await self.join(self.channels)
+            self.channels = [self.channels]
+        else:
+            raise ValueError("Channels must be a list or a string")
 
-            self.connected = True
-            async with trio.open_nursery() as nursery:
-                log("Listening for messages...")
-                nursery.start_soon(self.run_bot_loop, s)
-                nursery.start_soon(self.message_task_loop)
-                if self.tables:
-                    nursery.start_soon(self.db_operation_loop)
-                nursery.start_soon(self.check_reconnect)
+        self.connected = True
+
+        log("Listening for messages...")
+        tasks = [self.run_bot_loop(stream), self.message_task_loop(), self.check_reconnect()]
+        if self.tables:
+            tasks.append(self.db_operation_loop())
+        await asyncio.gather(*tasks)
 
     async def check_reconnect(self):
         await self.sleep(self.ping_delay)
@@ -512,9 +533,8 @@ class IrcBot(object):
             await self.send_raw(f"PING {self.host}\r\n")
             await self.sleep(self.ping_delay)
         log("Disconnected!! Attempting to reconnect...")
-        await self.s.aclose()
+        await self.stream.aclose()
         raise BotConnectionError("Bot Disconnected: No ping response from server")
-        # self.nursery.cancel()
 
     async def send_raw(self, data: str):
         """send_raw. Sends a string to the irc server.
@@ -526,13 +546,13 @@ class IrcBot(object):
             data += "\r\n"
         await self._enqueue_message(data)
 
-    async def join(self, channel):
+    async def join(self, channel: str):
         """joins a channel.
 
         :param channel: str. Channel name. Include the '#', eg. "#lobby"
         """
         log("Joining", channel)
-        await self.s.send_all(("JOIN " + channel + " \r\n").encode())  # chanel
+        await self.stream.send_all(("JOIN " + channel + " \r\n").encode())  # chanel
 
     async def list_channels(self):
         """list_channels of the irc server.
@@ -544,7 +564,7 @@ class IrcBot(object):
         await self.sleep(1)
         return self.server_channels
 
-    async def list_names(self, channel):
+    async def list_names(self, channel: str):
         """Lists users nicks in channel.
 
         Also check bot.channel_names for a non sanitized version(like starting with ~ & % @ + for operators, moderators, etc; if you want to detect them)
@@ -564,7 +584,7 @@ class IrcBot(object):
         names = [name[1:] if any([name.startswith(s) for s in special_symbols]) else name for name in names]
         return names
 
-    async def send_message(self, message, channel=None):
+    async def send_message(self, message: Sendable, channel: str | list[str] | None = None):
         """Sends a text message. The message will be enqueued and sent whenever
         the messaging loop arrives on it.
 
@@ -574,38 +594,42 @@ class IrcBot(object):
         if channel is None:
             channel = self.channels
 
-        if type(channel) == list and type(message) != Message:
+        if isinstance(channel, list):
             for chan in channel:
                 await self._send_message(message, chan)
         else:
             await self._send_message(message, channel)
 
-    async def _send_message(self, message, channel):
-        if type(message) == str:
+    async def _send_message(self, message: Sendable, channel: str):
+        if isinstance(message, str):
             message = message.replace("\n", "    ")
             message = message.replace("\r", "")
             await self._enqueue_message((str("PRIVMSG " + channel) + " :" + message + " \r\n"))
-        elif type(message) == Color:
+        elif isinstance(message, Color):
             await self._send_message(message.str, channel)
-        elif type(message) == list:
+        elif isinstance(message, list):
             for msg in message:
                 await self._send_message(msg, channel)
-        elif type(message) == Message:
+        elif isinstance(message, Message):
             await self._send_message(message.message, message.channel)
+        else:
+            raise ValueError("Message must be a str, a list of str, a Message object or a Color object")
 
     async def message_task_loop(self):
-        async with self.receive_message_channel:
-            async for msg in self.receive_message_channel:
+        while True:
+            try:
+                msg = await self.message_queue.get()
                 await self._send_data(msg)
+                self.message_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
 
     async def _enqueue_message(self, message):
-        await self.send_message_channel.send(message)
+        await self.message_queue.put(message)
 
     async def _send_data(self, data):
-        s = self.s
         debug("Sending: ", f"{data=}")
-        await trio.sleep(0)
-        await s.send_all(data.encode())
+        await self.stream.send_all(data.encode())
 
     async def check_tables(self):
         debug("Checking tables")
@@ -622,44 +646,46 @@ class IrcBot(object):
         for table in self.tables:
             table.fetch()
 
-    async def _enqueue_db_tsk(self, table):
+    async def _enqueue_db_tsk(self, table: PersistentData):
         debug("db task", str(table._queue))
-        await self.send_db_operation_channel.send(table)
+        await self.db_operation_queue.put(table)
 
     async def db_operation_loop(self):
-        async with self.receive_db_operation_channel:
-            async for table in self.receive_db_operation_channel:
+        while True:
+            try:
+                table = await self.db_operation_queue.get()
                 for op in table._queue:
                     if op.op == DBOperation.ADD:
-                        table.db.newData(op.data)
+                        table.db.new_data(op.data)
                     if op.op == DBOperation.REMOVE:
-                        table.db.deleteData(op.id)
+                        table.db.delete_data(op.id)
                     if op.op == DBOperation.UPDATE:
                         table.db.update(op.id, op.data)
+                self.db_operation_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
 
-    async def run_bot_loop(self, s):
+    async def run_bot_loop(self, stream: TCPStream):
         """Starts main bot loop waiting for messages."""
-        async with trio.open_nursery() as nursery:
-            async with self.send_message_channel, self.send_db_operation_channel:
-                async for data in s:
-                    try:
-                        data = data.decode("utf-8")
-                    except UnicodeDecodeError:
-                        pass
-                    debug(
-                        "\n>>>> DECODED DATA FROM SERVER: \n",
-                        60 * "-",
-                        "\n",
-                        f"{data=}\n",
-                        60 * "-",
-                        "\n",
-                    )
-                    self.fetch_tables()
-                    for msg in data.split("\r\n"):
-                        nursery.start_soon(self.data_handler, s, msg)
+        while True:
+            data = await stream.recv()
+            try:
+                data = data.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            debug(
+                "\n>>>> DECODED DATA FROM SERVER: \n",
+                60 * "-",
+                "\n",
+                f"{data=}\n",
+                60 * "-",
+                "\n",
+            )
+            self.fetch_tables()
+            await asyncio.gather(*[self.data_handler(data) for data in data.split("\r\n")])
 
     async def process_result(self, result, channel, sender_nick, is_private):
-        if type(result) == ReplyIntent:
+        if isinstance(result, ReplyIntent):
             if result.message:
                 await self.send_message(result.message, sender_nick if is_private else channel)
                 if type(result.message) == Message:
@@ -913,7 +939,7 @@ class IrcBot(object):
     async def wait_for(
         self,
         type: str,
-        from_nick: str = None,
+        from_nick: str | None = None,
         timeout: int = 0,
         cache_ttl: int = 0,
         filter_func=None,
@@ -961,20 +987,19 @@ class IrcBot(object):
         self._awaiting_messages[key][idx]["nick"] = from_nick
         self._awaiting_messages[key][idx]["cache_ttl"] = cache_ttl
         self._awaiting_messages[key][idx]["use_cache"] = use_cache
-        send_stream, receive_stream = trio.open_memory_channel(0)
-        self._awaiting_messages[key][idx]["send_stream"] = send_stream
+        wait_for_queue = asyncio.Queue()
+        self._awaiting_messages[key][idx]["send_stream"] = wait_for_queue
 
         async def await_message():
-            async for msg in receive_stream:
-                break
-            await send_stream.aclose()
-            await receive_stream.aclose()
+            msg = await wait_for_queue.get()
             self._awaiting_messages[key][idx]["message"] = msg
             if use_cache and "cache" not in self._awaiting_messages[key]:
                 self._awaiting_messages[key]["cache"] = msg
+            wait_for_queue.task_done()
+            self._awaiting_messages[key][idx]["send_stream"] = None
 
         if timeout and timeout > 0:
-            with trio.move_on_after(timeout):
+            async with asyncio.timeout(timeout):
                 await await_message()
         else:
             await await_message()
@@ -989,7 +1014,7 @@ class IrcBot(object):
         return msg["message"] if msg else {}
 
     # MAIN DATA RECEIVING HANDLER
-    async def data_handler(self, s, data):
+    async def data_handler(self, data: str):
         nick = self.nick
         host = self.host
         self.connected = True
@@ -1062,7 +1087,7 @@ class IrcBot(object):
                 "notice": g.group(3),
                 "text": g.group(4),
             },
-            r"^\s*PING \s*" + self.nick + r"\s*$": lambda g: {"type": "ping", "ping": self.nick},
+            r"^\s*PING \s*" + self.nick + r"\s*$": lambda _: {"type": "ping", "ping": self.nick},
             r"^:\S+\s+PONG\s+\S+\s+:(\S+).*$": lambda g: {"type": "pong", "nick": g[1]},
             r"^:\S* 353 "
             + self.nick
@@ -1155,9 +1180,11 @@ class IrcBot(object):
                         continue
                     debug(f"Found match for awaiting message {idx=} {self._awaiting_messages[akey][idx]=}")
                     debug(f"{message=}")
-                    try:
-                        await self._awaiting_messages[akey][idx]["send_stream"].send(message)
-                    except trio.ClosedResourceError:
+
+                    queue = self._awaiting_messages[akey][idx]["send_stream"]
+                    if queue is not None:
+                        await queue.put(message)
+                    else:
                         continue
                     if not use_cache:
                         return
@@ -1301,7 +1328,6 @@ class IrcBot(object):
                             if cmd in utils.regex_commands:
                                 if is_private and not utils.regex_commands_accept_pm[i]:
                                     continue
-                                await trio.sleep(0)
                                 _message = Message(channel, sender_nick, msg, is_private)
                                 result = await self._call_cb(cmd[reg], _message, m)
                             if result:
@@ -1330,7 +1356,6 @@ class IrcBot(object):
                                     continue
                                 debug("sending to", sender_nick)
                                 if utils.regex_commands_with_message_pass_data[i]:
-                                    await trio.sleep(0)
                                     _message = Message(
                                         channel,
                                         sender_nick,
@@ -1345,7 +1370,6 @@ class IrcBot(object):
                                         _message,
                                     )
                                 else:
-                                    await trio.sleep(0)
                                     _message = Message(
                                         channel,
                                         sender_nick,
@@ -1376,7 +1400,6 @@ class IrcBot(object):
                         if word[-1] in [" ", "?", ",", ";", ":", "\\"]:
                             word = word[:-1]
                         if utils.validate_url(word):
-                            await trio.sleep(0)
                             debug("Checking url: " + str(word))
                             _message = Message(channel, sender_nick, msg, is_private)
                             result = await self._call_cb(utils.url_commands[-1], _message, word)
@@ -1401,7 +1424,7 @@ class IrcBot(object):
 
     def __del__(self):
         try:
-            self.s.close()
+            self.stream.close()
         except:
             pass
 
