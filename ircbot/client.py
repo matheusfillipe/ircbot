@@ -22,14 +22,14 @@ from copy import copy, deepcopy
 from functools import partial
 from math import ceil
 from pathlib import Path
-from typing import Awaitable, Callable, TypeAlias
+from typing import Any, Awaitable, Callable
 
 from cachetools import TTLCache
 
-from ircbot import dcc, utils
-from ircbot.message import Message, RawMessage, ReplyIntent
+from ircbot import dcc, hooks
+from ircbot.message import Color, Message, RawMessage, ReplyIntent, Sendable
 from ircbot.sqlitedb import DB
-from ircbot.utils import debug, log, logger
+from ircbot.utils import debug, log, logger, validate_url
 
 Message = Message
 ReplyIntent = ReplyIntent
@@ -41,70 +41,6 @@ MAX_MESSAGE_LEN = 410
 
 class BotConnectionError(Exception):
     pass
-
-
-class Color(object):
-    """Colorcodes enum."""
-
-    esc = "\003"
-    white = "00"
-    black = "01"
-    navy = "02"
-    green = "03"
-    red = "04"
-    maroon = "05"
-    purple = "06"
-    orange = "07"
-    yellow = "08"
-    light_green = "09"
-    teal = "10"
-    cyan = "11"
-    blue = "12"
-    magenta = "13"
-    gray = "14"
-    light_gray = "15"
-
-    COLORS = [
-        "00",
-        "01",
-        "02",
-        "03",
-        "04",
-        "05",
-        "06",
-        "07",
-        "08",
-        "09",
-        "10",
-        "11",
-        "12",
-        "13",
-        "14",
-        "15",
-    ]
-
-    def __init__(self, text, fg=white, bg=None):
-        if bg is not None:
-            self.text = "{}{},{}{}".format(self.esc, fg, bg, text)
-        else:
-            self.text = "{}{}{}".format(self.esc, fg, text)
-        self.str = self.text + Color.esc
-
-    @classmethod
-    def random(cls):
-        return random.choice(cls.COLORS)
-
-    @classmethod
-    def colors(cls):
-        """Returns the color names."""
-        return [
-            k
-            for k in Color.__dict__
-            if not (k.startswith("_") or k in ["esc", "COLORS", "colors", "getcolors", "random"])
-        ]
-
-    def __str__(self):
-        return self.str
 
 
 class DBOperation(object):
@@ -228,9 +164,8 @@ class TCPStream:
         self.writer.close()
 
 
-class IrcBot:
-    AsyncCallback = Callable[["IrcBot"], Awaitable[None]]
-    Sendable: TypeAlias = str | Message | Color | list[str | Message | Color]
+class IrcBot(hooks.HookHandler):
+    AsyncCallback = Callable[[], Awaitable[None]]
 
     nick: str
     password: str
@@ -262,6 +197,7 @@ class IrcBot:
     message_queue: asyncio.Queue[str]
     db_operation_queue: asyncio.Queue[PersistentData]
     stream: TCPStream
+    _data: Any
 
     def __init__(
         self,
@@ -327,7 +263,6 @@ class IrcBot:
         self.tables = tables
         self.delay = delay
         self.accept_join_from = accept_join_from
-        self.custom_handlers = utils.custom_handlers
         self.custom_handlers.update(custom_handlers)
         self.strip_messages = strip_messages
         self.dcc_ports = dcc_ports
@@ -348,11 +283,6 @@ class IrcBot:
         self.server_channels = {}
         self.channel_names = {}
 
-        if utils.arg_commands_with_message:
-            new_commands = deepcopy(utils._defined_command_dict)
-            new_commands.update(utils.arg_commands_with_message)
-            utils.set_commands(new_commands, prefix=utils.command_prefix)
-
         self.message_queue = asyncio.Queue()
         self.db_operation_queue = asyncio.Queue()
         self.replyIntents = {}
@@ -363,16 +293,33 @@ class IrcBot:
         self.async_callback = None
         self.retry_connecting = False
 
+    @property
+    def data(self):
+        """Store anything you want in memory here."""
+        return self._data
+
+    @data.setter
+    def data(self, value: Any):
+        self._data = value
+
+    def _install_hooks(self):
+        self.custom_handlers.update(self.custom_handlers)
+        if self.arg_commands_with_message:
+            new_commands = deepcopy(self._defined_command_dict)
+            new_commands.update(self.arg_commands_with_message)
+            self.set_commands(new_commands, prefix=self.command_prefix)
+
     async def hot_reload(self):
         """Reload the handlers."""
-        utils._hot_reload()
-        self.custom_handlers.update(utils.custom_handlers)
-        if utils.arg_commands_with_message:
-            new_commands = deepcopy(utils._defined_command_dict)
-            new_commands.update(utils.arg_commands_with_message)
-            utils.set_commands(new_commands, prefix=utils.command_prefix)
+        self._hot_reload()
+        self.custom_handlers.update(self.custom_handlers)
+        if self.arg_commands_with_message:
+            new_commands = deepcopy(self._defined_command_dict)
+            new_commands.update(self.arg_commands_with_message)
+            self.set_commands(new_commands, prefix=self.command_prefix)
 
-    async def _mainloop(self, async_callback: AsyncCallback):
+    async def _mainloop(self, async_callback: AsyncCallback | None):
+        self._install_hooks()
         self.is_running_with_callback = bool(async_callback)
         self.async_callback = async_callback
         while True:
@@ -403,7 +350,7 @@ class IrcBot:
         while not self.connected:
             await asyncio.sleep(1)
         if self.async_callback:
-            await self.async_callback(self)
+            await self.async_callback()
 
     def add_middleware(self, method):
         """Adds a middleware to run before every command.
@@ -412,7 +359,7 @@ class IrcBot:
         """
         self.middleware.append(method)
 
-    def run(self, async_callback: AsyncCallback):
+    def run(self, async_callback: AsyncCallback | None = None):
         """Simply starts the bot.
 
         param: async_callback: async function to be called.
@@ -452,6 +399,7 @@ class IrcBot:
         if self.use_ssl:
             log("Using SSL connection")
             import ssl
+
             ssl_context = ssl.create_default_context()
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
@@ -1020,7 +968,7 @@ class IrcBot:
         self.connected = True
 
         try:
-            if utils._hot_reload_if_changed():
+            if self._hot_reload_if_changed():
                 await self.hot_reload()
         except Exception as e:
             log(f"Error in hot reload: {str(e)}")
@@ -1319,43 +1267,41 @@ class IrcBot:
                     await self.process_result(result, channel, sender_nick, is_private)
                     return
 
-                for i, cmd in enumerate(utils.regex_commands[::-1] if not utils.parse_order else utils.regex_commands):
+                for i, cmd in enumerate(self.regex_commands[::-1] if not self.parse_order else self.regex_commands):
                     if matched:
                         break
                     for reg in cmd:
                         m = re.match(reg, msg)
                         if m:
-                            if cmd in utils.regex_commands:
-                                if is_private and not utils.regex_commands_accept_pm[i]:
+                            if cmd in self.regex_commands:
+                                if is_private and not self.regex_commands_accept_pm[i]:
                                     continue
                                 _message = Message(channel, sender_nick, msg, is_private)
                                 result = await self._call_cb(cmd[reg], _message, m)
                             if result:
                                 await self.process_result(result, channel, sender_nick, is_private)
                                 matched = True
-                            if utils.single_match:
+                            if self.single_match:
                                 matched = True
                                 break
 
-                if matched and utils.single_match:
+                if matched and self.single_match:
                     await self.check_tables()
                     return
 
                 for i, cmd in enumerate(
-                    utils.regex_commands_with_message[::-1]
-                    if not utils.parse_order
-                    else utils.regex_commands_with_message
+                    self.regex_commands_with_message[::-1] if not self.parse_order else self.regex_commands_with_message
                 ):
                     if matched:
                         break
                     for reg in cmd:
                         m = re.match(reg, msg)  # , flags=re.IGNORECASE)
                         if m:
-                            if cmd in utils.regex_commands_with_message:
-                                if is_private and not utils.regex_commands_with_message_accept_pm[i]:
+                            if cmd in self.regex_commands_with_message:
+                                if is_private and not self.regex_commands_with_message_accept_pm[i]:
                                     continue
                                 debug("sending to", sender_nick)
-                                if utils.regex_commands_with_message_pass_data[i]:
+                                if self.regex_commands_with_message_pass_data[i]:
                                     _message = Message(
                                         channel,
                                         sender_nick,
@@ -1382,16 +1328,16 @@ class IrcBot:
                             if result:
                                 await self.process_result(result, channel, sender_nick, is_private)
                                 matched = True
-                            if utils.single_match:
+                            if self.single_match:
                                 matched = True
                                 break
 
-                if matched and utils.single_match:
+                if matched and self.single_match:
                     await self.check_tables()
                     return
 
                 # URL MATCHER
-                if utils.url_commands:
+                if self.url_commands:
                     for word in msg.split(" "):
                         if len(word) < 6:
                             continue
@@ -1399,10 +1345,10 @@ class IrcBot:
                         word = word.strip()
                         if word[-1] in [" ", "?", ",", ";", ":", "\\"]:
                             word = word[:-1]
-                        if utils.validate_url(word):
+                        if validate_url(word):
                             debug("Checking url: " + str(word))
                             _message = Message(channel, sender_nick, msg, is_private)
-                            result = await self._call_cb(utils.url_commands[-1], _message, word)
+                            result = await self._call_cb(self.url_commands[-1], _message, word)
                         if result:
                             await self.send_message(result, channel)
 
@@ -1419,7 +1365,7 @@ class IrcBot:
                 if not resp:
                     return
         if inspect.iscoroutinefunction(cb):
-            return await cb(self, *args, **kwargs)
+            return await cb(*args, **kwargs)
         return cb(*args, **kwargs)
 
     def __del__(self):
