@@ -104,4 +104,4 @@ class ReplyIntent(object):
         self.message = message
 
 
-Sendable: TypeAlias = str | Message | Color | list[str | Message | Color] | ReplyIntent
+Sendable: TypeAlias = str | Message | Color | list[str] | list[Message] | list[Color] | ReplyIntent

@@ -1,6 +1,4 @@
 # TODO: Use self typehints instead of class
-from __future__ import annotations
-
 import importlib.util
 import inspect
 import logging
@@ -9,6 +7,8 @@ import re
 from collections.abc import Callable
 from functools import wraps
 from typing import Awaitable, Literal, TypeAlias, get_args
+
+from typing_extensions import Self
 
 from ircbot.message import Message, Sendable
 from ircbot.shortest_prefix import find_shortest_prefix
@@ -36,10 +36,11 @@ def _reg_word(org, pref):
 Actions = Literal["privmsg", "ping", "names", "channel", "join", "quit", "part", "dccsend"]
 
 Regex: TypeAlias = str | re.Pattern
-RegexCallback = Callable[[re.Match], Sendable | Awaitable[Sendable | None]]
-RegexWithMessageCallback = Callable[[re.Match, Message], Sendable | Awaitable[Sendable | None]]
-UrlCallback = Callable[[str], Sendable | Awaitable[Sendable | None]]
-ArgCommandCallback = Callable[[re.Match, Message], Sendable | Awaitable[Sendable | None]]
+HookReturn = Sendable | Awaitable[Sendable | None] | None
+RegexCallback = Callable[[re.Match], HookReturn]
+RegexWithMessageCallback = Callable[[re.Match, Message], HookReturn]
+UrlCallback = Callable[[str], HookReturn]
+ArgCommandCallback = Callable[[re.Match, Message], HookReturn]
 
 
 class HookHandler:
@@ -180,7 +181,7 @@ class HookHandler:
             **kwargs,
         )
 
-    def set_simplify_commands(self, simplify: bool) -> HookHandler:
+    def set_simplify_commands(self, simplify: bool) -> Self:
         self.simplify_arg_commands = simplify
         return self
 
@@ -232,7 +233,7 @@ class HookHandler:
     help_menu_separator: str = "\n"
     help_on_private: bool = False
 
-    def set_help_menu_separator(self, sep: str) -> HookHandler:
+    def set_help_menu_separator(self, sep: str) -> Self:
         """Sets the separator string between the help commands. If can contain a
         '\n'.
 
@@ -242,7 +243,7 @@ class HookHandler:
         self.help_menu_separator = sep
         return self
 
-    def set_help_on_private(self, is_private: bool) -> HookHandler:
+    def set_help_on_private(self, is_private: bool) -> Self:
         """Defines if the help messages should be sent as private messages. This is
         useful to avoide flooding if the bots has many commands.
 
@@ -251,7 +252,7 @@ class HookHandler:
         self.help_on_private = is_private
         return self
 
-    def set_help_header(self, txt: str) -> HookHandler:
+    def set_help_header(self, txt: str) -> Self:
         """Adds some text to the help message before the command descriptions.
 
         :param txt: Text to display before command descriptions
@@ -265,7 +266,7 @@ class HookHandler:
             raise BaseException("You must pass wither a list of strings or a string")
         return self
 
-    def set_help_bottom(self, txt: str) -> HookHandler:
+    def set_help_bottom(self, txt: str) -> Self:
         """Adds some text to the help message after the command descriptions.
 
         :param txt: Text to display after command descriptions
@@ -375,7 +376,7 @@ class HookHandler:
 
             self.re_command(_reg_word("help", _commands["help"]))(help_menu)
 
-    def set_prefix(self, prefix) -> HookHandler:
+    def set_prefix(self, prefix) -> Self:
         """setPrefix. Sets the prefix for arg commands.
 
         :param prefix: str prefix for commands
@@ -383,7 +384,7 @@ class HookHandler:
         self.command_prefix = prefix
         return self
 
-    def set_single_match(self, _single_match: bool) -> HookHandler:
+    def set_single_match(self, _single_match: bool) -> Self:
         """Defines if there will be only one command handler called. If false all regex and arg_commands will be matched against the user input.
         :param singleMatch: If true there will be only one match per command. Defaults to False (all matches will be called)
         :type singleMatch: bool
@@ -391,7 +392,7 @@ class HookHandler:
         self.single_match = _single_match
         return self
 
-    def set_parser_order(self, top_bottom: bool = True) -> HookHandler:
+    def set_parser_order(self, top_bottom: bool = True) -> Self:
         """setParseOrder.
 
         :param top_bottom: bool -> if True then first defined regex expressions will overwrite last ones. Default is False
@@ -399,7 +400,7 @@ class HookHandler:
         self.parse_order = top_bottom
         return self
 
-    def set_max_arguments(self, n: int) -> HookHandler:
+    def set_max_arguments(self, n: int) -> Self:
         """setMaxArguments.
 
         :param n: number of arguments for callbacks in arg_command decorator

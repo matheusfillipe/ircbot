@@ -46,7 +46,7 @@ async def send(args, message):  # If a handler is async, its first argument will
 @bot.arg_command("list", "Lists users on the chat")
 async def list_u(args, message):
     names = bot.channel_names[message.channel]
-    return f"HELLO {', '.join(names)}"
+    return [f"HELLO {', '.join(names)}", "I am glad to see you all!!!"]
 
 
 # Handles user quit or exit chat
