@@ -62,3 +62,11 @@ coverage.xml
 # Translations
 *.mo
 *.pot
+
+
+# Env
+.venv
+.env
+
+# Other stuff
+*.db

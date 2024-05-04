@@ -26,10 +26,10 @@ import trio
 import trio_asyncio
 from cachetools import TTLCache
 
-from IrcBot import dcc, utils
-from IrcBot.message import Message, RawMessage, ReplyIntent
-from IrcBot.sqlitedb import DB
-from IrcBot.utils import debug, log, logger
+from ircbot import dcc, utils
+from ircbot.message import Message, RawMessage, ReplyIntent
+from ircbot.sqlitedb import DB
+from ircbot.utils import debug, log, logger
 
 Message = Message
 ReplyIntent = ReplyIntent
@@ -107,7 +107,7 @@ class Color(object):
         return self.str
 
 
-class dbOperation(object):
+class DBOperation(object):
     ADD = 1
     UPDATE = 0
     REMOVE = -1
@@ -118,7 +118,7 @@ class dbOperation(object):
         self.op = op
 
 
-class tempData(object):
+class TempData(object):
     def __init__(self):
         """Initializes a temporary data object that can be retrieved from the
         same user and channel."""
@@ -147,7 +147,7 @@ class tempData(object):
         return self.data[(msg.channel, msg.sender_nick)]
 
 
-class persistentData(object):
+class PersistentData(object):
     def __init__(self, filename, name, keys):
         """__init__.
 
@@ -171,7 +171,7 @@ class persistentData(object):
 
     def fetch(self):
         """fetches the list of dicts/items with ids."""
-        self.data = self.db.getAllWithId()
+        self.data = self.db.get_all_with_id()
         return self.data
 
     def push(self, items):
@@ -183,7 +183,7 @@ class persistentData(object):
             for item in items:
                 self.push(item)
         else:
-            self._queue.append(dbOperation(data=items, op=dbOperation.ADD))
+            self._queue.append(DBOperation(data=items, op=DBOperation.ADD))
 
     def pop(self, id):
         """Removes the row based on the id. (You can see with self.data)
@@ -191,7 +191,7 @@ class persistentData(object):
         :param id: int
         """
         assert type(id) == int, "id needs to be an int!"
-        self._queue.append(dbOperation(id=id, op=dbOperation.REMOVE))
+        self._queue.append(DBOperation(id=id, op=DBOperation.REMOVE))
 
     def update(self, id, item):
         """update.
@@ -201,7 +201,7 @@ class persistentData(object):
         """
         assert type(item) == dict, "item must be either list or dict"
         assert type(id) == int, "id needs to be an int!"
-        self._queue.append(dbOperation(id=id, data=item, op=dbOperation.UPDATE))
+        self._queue.append(DBOperation(id=id, data=item, op=DBOperation.UPDATE))
 
     def clear(self):
         """Clear all the proposed modifications."""
@@ -310,7 +310,7 @@ class IrcBot(object):
         if utils.arg_commands_with_message:
             new_commands = deepcopy(utils._defined_command_dict)
             new_commands.update(utils.arg_commands_with_message)
-            utils.setCommands(new_commands, prefix=utils.command_prefix)
+            utils.set_commands(new_commands, prefix=utils.command_prefix)
 
         (
             self.send_message_channel,
@@ -337,7 +337,7 @@ class IrcBot(object):
         if utils.arg_commands_with_message:
             new_commands = deepcopy(utils._defined_command_dict)
             new_commands.update(utils.arg_commands_with_message)
-            utils.setCommands(new_commands, prefix=utils.command_prefix)
+            utils.set_commands(new_commands, prefix=utils.command_prefix)
 
     async def _mainloop(self, async_callback=None):
         self.is_running_with_callback = True if async_callback else None
@@ -367,7 +367,7 @@ class IrcBot(object):
                 else:
                     self.nursery = nursery.start_soon(self.start_with_callback)
 
-    def runWithCallback(self, async_callback):
+    def run_with_callback(self, async_callback):
         """starts the bot with an async callback.
 
         Useful if you want to use bot.send without user interaction.
@@ -611,7 +611,7 @@ class IrcBot(object):
         debug("Checking tables")
         for table in self.tables:
             if table._queue:
-                table_copy = persistentData(table.filename, table.name, table.keys)
+                table_copy = PersistentData(table.filename, table.name, table.keys)
                 table_copy._queue = table._queue
                 await self._enqueue_db_tsk(table_copy)
             debug("qeue", table._queue)
@@ -630,11 +630,11 @@ class IrcBot(object):
         async with self.receive_db_operation_channel:
             async for table in self.receive_db_operation_channel:
                 for op in table._queue:
-                    if op.op == dbOperation.ADD:
+                    if op.op == DBOperation.ADD:
                         table.db.newData(op.data)
-                    if op.op == dbOperation.REMOVE:
+                    if op.op == DBOperation.REMOVE:
                         table.db.deleteData(op.id)
-                    if op.op == dbOperation.UPDATE:
+                    if op.op == DBOperation.UPDATE:
                         table.db.update(op.id, op.data)
 
     async def run_bot_loop(self, s):
@@ -1375,7 +1375,7 @@ class IrcBot(object):
                         word = word.strip()
                         if word[-1] in [" ", "?", ",", ";", ":", "\\"]:
                             word = word[:-1]
-                        if utils.validateUrl(word):
+                        if utils.validate_url(word):
                             await trio.sleep(0)
                             debug("Checking url: " + str(word))
                             _message = Message(channel, sender_nick, msg, is_private)

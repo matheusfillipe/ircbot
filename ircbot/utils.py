@@ -8,7 +8,6 @@ import os
 import re
 import sys
 from functools import wraps
-from typing import Callable, TypeVar
 
 has_validators = False
 try:
@@ -18,8 +17,8 @@ try:
 except:
     pass
 
-from .message import Message
-from .shortestPrefix import findShortestPrefix
+from ircbot.message import Message
+from ircbot.shortest_prefix import find_shortest_prefix
 
 logger = None
 
@@ -191,7 +190,7 @@ arg_commands_with_message = {}
 simplify_arg_commands = True
 
 
-def setSimplifyCommands(simplify):
+def set_simplify_commands(simplify):
     global simplify_arg_commands
     simplify_arg_commands = simplify
 
@@ -245,7 +244,7 @@ help_menu_separator = "\n"
 help_on_private = False
 
 
-def setHelpMenuSeparator(sep: str):
+def set_help_menu_separator(sep: str):
     """Sets the separator string between the help commands. If can contain a
     '\n'.
 
@@ -256,7 +255,7 @@ def setHelpMenuSeparator(sep: str):
     help_menu_separator = sep
 
 
-def setHelpOnPrivate(is_private):
+def set_help_on_private(is_private):
     """Defines if the help messages should be sent as private messages. This is
     useful to avoide flooding if the bots has many commands.
 
@@ -266,7 +265,7 @@ def setHelpOnPrivate(is_private):
     help_on_private = is_private
 
 
-def setHelpHeader(txt: str):
+def set_help_header(txt: str):
     """Adds some text to the help message before the command descriptions.
 
     :param txt: Text to display before command descriptions
@@ -281,7 +280,7 @@ def setHelpHeader(txt: str):
         raise BaseException("You must pass wither a list of strings or a string")
 
 
-def setHelpBottom(txt: str):
+def set_help_bottom(txt: str):
     """Adds some text to the help message after the command descriptions.
 
     :param txt: Text to display after command descriptions
@@ -310,7 +309,7 @@ def _reg_word(org, pref):
 _defined_command_dict = {}
 
 
-def setCommands(command_dict: dict, simplify=None, prefix="!"):
+def set_commands(command_dict: dict, simplify=None, prefix="!"):
     """Defines commands for the bot from existing functions
     param: command_dict: Takes a dictionary of "command names": function's to call creating the commands for each of them.
     param: simplify: Uses shortest prefixes for each command. If True the shortest differentiatable prefixes for the commands will work. Like if there is start and stop, !sta will call start and !sto will call stop. Instead of passing a function  directly you can pass in a dict like:
@@ -335,7 +334,7 @@ def setCommands(command_dict: dict, simplify=None, prefix="!"):
             return not command_dict[c]["simplify"]
         return False
 
-    _commands = findShortestPrefix([c for c in command_dict.keys() if not not_regex(c)])
+    _commands = find_shortest_prefix([c for c in command_dict.keys() if not not_regex(c)])
     min_commands = []
     exclude_list = [c for c in command_dict.keys() if not_regex(c)]
     for cmd in command_dict:
@@ -379,7 +378,7 @@ def setCommands(command_dict: dict, simplify=None, prefix="!"):
 
     _defined_command_dict = command_dict
     if help_msg or commands_help:
-        _commands = findShortestPrefix([c for c in command_dict.keys() if not not_regex(c)] + ["help"])
+        _commands = find_shortest_prefix([c for c in command_dict.keys() if not not_regex(c)] + ["help"])
 
         def help_menu(args, message):
             channel = message.channel
@@ -408,7 +407,7 @@ def setCommands(command_dict: dict, simplify=None, prefix="!"):
         re_command(_reg_word("help", _commands["help"]))(help_menu)
 
 
-def setPrefix(prefix):
+def set_prefix(prefix):
     """setPrefix. Sets the prefix for arg commands.
 
     :param prefix: str prefix for commands
@@ -417,7 +416,7 @@ def setPrefix(prefix):
     command_prefix = prefix
 
 
-def setSingleMatch(singleMatch: bool):
+def set_single_match(singleMatch: bool):
     """Defines if there will be only one command handler called. If false all regex and arg_commands will be matched against the user input.
     :param singleMatch: If true there will be only one match per command. Defaults to False (all matches will be called)
     :type singleMatch: bool
@@ -426,7 +425,7 @@ def setSingleMatch(singleMatch: bool):
     single_match = singleMatch
 
 
-def setParseOrderTopBottom(top_bottom: bool = True):
+def set_parser_order(top_bottom: bool = True):
     """setParseOrder.
 
     :param top_bottom: bool -> if True then first defined regex expressions will overwrite last ones. Default is False
@@ -435,7 +434,7 @@ def setParseOrderTopBottom(top_bottom: bool = True):
     parse_order = top_bottom
 
 
-def setMaxArguments(n):
+def set_max_arguments(n):
     """setMaxArguments.
 
     :param n: number of arguments for callbacks in arg_command decorator
@@ -444,10 +443,7 @@ def setMaxArguments(n):
     _command_max_arguments = n
 
 
-# LOGGING SETUP
-
-
-def setLogging(level, logfile=None):
+def set_loglevel(level, logfile=None):
     """Sets the loggins level of the logging module.
 
     :param level: int. level, (logging.DEBUG, logging.INFO, etc...)
@@ -464,7 +460,7 @@ def setLogging(level, logfile=None):
     logger.setLevel(level)
 
 
-setLogging(logging.DEBUG)
+set_loglevel(logging.DEBUG)
 
 
 def log(*args, level=logging.INFO):
@@ -486,7 +482,7 @@ def warning(*args, level=logging.WARNING):
 
 
 # Extras
-def validateUrl(url):
+def validate_url(url):
     if has_validators:
         return validators.url(url)
     else:
