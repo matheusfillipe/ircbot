@@ -3,7 +3,7 @@ import subprocess
 
 import setuptools
 
-VERSION = "2.0.4-dev"
+VERSION = "2.0.5-dev"
 BRANCH = "v2"
 
 with open("README.md", "r", encoding="utf-8") as fh:
