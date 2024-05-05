@@ -12,7 +12,7 @@ from typing_extensions import Self
 
 from ircbot.message import Message, Sendable
 from ircbot.shortest_prefix import find_shortest_prefix
-from ircbot.utils import log
+from ircbot.utils import debug, log
 
 
 def md5_file(file):
@@ -193,6 +193,7 @@ class HookHandler:
         acccept_pms: bool = True,
         pass_data: bool = False,
         simplify: bool | None = None,
+        alias: str | list[str] | None = None,
         **kwargs,
     ):
         """Wrapper for setCommands.
@@ -202,7 +203,14 @@ class HookHandler:
         param: simplify: Uses shortest prefixes for each command. If True the shortest differentiatable prefixes for the commands will work. Like if there is start and stop, !sta will call start and !sto will call stop. Instead of passing a function  directly you can pass in a dict like:
         param: help: Message to display on help command.
         param: command_help: Message to display on help command with this command's name as argument.
+        alias: str or list of strings with aliases for this command
         """
+
+        aliases = []
+        if isinstance(alias, str):
+            aliases = [alias]
+        elif alias is None:
+            aliases = []
 
         if simplify is None:
             simplify = self.simplify_arg_commands
@@ -221,6 +229,10 @@ class HookHandler:
                 "command_help": command_help,
                 "simplify": simplify,
             }
+
+            for a in aliases:
+                debug(f"Adding alias {a} for {command}")
+                self.arg_commands_with_message[a] = self.arg_commands_with_message[command]
 
             return wrapped
 

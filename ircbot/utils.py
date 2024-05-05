@@ -26,7 +26,7 @@ def truncate_words(content: str, length: int = 10, suffix: str = "...") -> str:
     return " ".join(split[:length]) + suffix
 
 
-def truncate(content: str, length: int = 100, suffix: str = "...", sep: str = " ") -> str:
+def truncate(content: str, length: int = 440, suffix: str = "...", sep: str = " ") -> str:
     """Truncates a string after a certain number of characters.
 
     Function always tries to truncate on a word boundary.

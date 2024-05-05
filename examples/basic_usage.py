@@ -12,7 +12,7 @@ bot = (
 )  # Accept 25 command arguments at max
 
 
-@bot.arg_command("echo", "Echo command", "It will return all passed arguments colored: echo [arg1] [arg2] ....")
+@bot.arg_command("echo", "Echo command", "It will return all passed arguments colored: echo [arg1] [arg2] ....", alias="say")
 def echo(args, message):
     utils.log("echoing")
     return " ".join(utils.m2list(args))  # m2list converts a re.match to a list
