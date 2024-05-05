@@ -1,69 +1,6 @@
-import random
 from typing import TypeAlias
 
-
-class Color(object):
-    """Colorcodes enum."""
-
-    esc = "\003"
-    white = "00"
-    black = "01"
-    navy = "02"
-    green = "03"
-    red = "04"
-    maroon = "05"
-    purple = "06"
-    orange = "07"
-    yellow = "08"
-    light_green = "09"
-    teal = "10"
-    cyan = "11"
-    blue = "12"
-    magenta = "13"
-    gray = "14"
-    light_gray = "15"
-
-    COLORS = [
-        "00",
-        "01",
-        "02",
-        "03",
-        "04",
-        "05",
-        "06",
-        "07",
-        "08",
-        "09",
-        "10",
-        "11",
-        "12",
-        "13",
-        "14",
-        "15",
-    ]
-
-    def __init__(self, text, fg=white, bg=None):
-        if bg is not None:
-            self.text = "{}{},{}{}".format(self.esc, fg, bg, text)
-        else:
-            self.text = "{}{}{}".format(self.esc, fg, text)
-        self.str = self.text + Color.esc
-
-    @classmethod
-    def random(cls):
-        return random.choice(cls.COLORS)
-
-    @classmethod
-    def colors(cls):
-        """Returns the color names."""
-        return [
-            k
-            for k in Color.__dict__
-            if not (k.startswith("_") or k in ["esc", "COLORS", "colors", "getcolors", "random"])
-        ]
-
-    def __str__(self):
-        return self.str
+from ircbot.format import Style
 
 
 class RawMessage:
@@ -104,4 +41,4 @@ class ReplyIntent(object):
         self.message = message
 
 
-Sendable: TypeAlias = str | Message | Color | list[str] | list[Message] | list[Color] | ReplyIntent
+Sendable: TypeAlias = str | Message | Style | list[str] | list[Message] | list[Style] | ReplyIntent

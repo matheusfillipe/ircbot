@@ -27,7 +27,7 @@ from typing import Any, Awaitable, Callable
 from cachetools import TTLCache
 
 from ircbot import dcc, hooks
-from ircbot.message import Color, Message, RawMessage, ReplyIntent, Sendable
+from ircbot.message import Message, RawMessage, ReplyIntent, Sendable, Style
 from ircbot.sqlitedb import DB
 from ircbot.utils import debug, log, logger, validate_url
 
@@ -557,7 +557,7 @@ class IrcBot(hooks.HookHandler):
     def _format_reply_message(self, reply_to: Message, message: Sendable) -> Sendable:
         if isinstance(message, str):
             return self.format_reply_message(reply_to, message)
-        elif isinstance(message, Color):
+        elif isinstance(message, Style):
             return self.format_reply_message(reply_to, message.str)
         elif isinstance(message, list):
             msgs = []
@@ -567,7 +567,7 @@ class IrcBot(hooks.HookHandler):
         elif isinstance(message, Message):
             return self.format_reply_message(reply_to, message.message)
         else:
-            raise ValueError("Message must be a str, a list of str, a Message object or a Color object")
+            raise ValueError("Message must be a str, a list of str, a Message object or a Style object")
 
     async def reply(self, reply_to: Message, message: Sendable):
         """Replies to a message prepending it with the sender's nick.
@@ -583,7 +583,7 @@ class IrcBot(hooks.HookHandler):
             message = message.replace("\n", "    ")
             message = message.replace("\r", "")
             await self._enqueue_message((str("PRIVMSG " + channel) + " :" + message + " \r\n"))
-        elif isinstance(message, Color):
+        elif isinstance(message, Style):
             await self._send_message(message.str, channel)
         elif isinstance(message, list):
             for msg in message:
@@ -591,7 +591,7 @@ class IrcBot(hooks.HookHandler):
         elif isinstance(message, Message):
             await self._send_message(message.message, message.channel)
         else:
-            raise ValueError("Message must be a str, a list of str, a Message object or a Color object")
+            raise ValueError("Message must be a str, a list of str, a Message object or a Style object")
 
     async def message_task_loop(self):
         while True:
