@@ -302,7 +302,8 @@ class IrcBot(hooks.HookHandler):
     def data(self, value: Any):
         self._data = value
 
-    def _install_hooks(self):
+    def install_hooks(self):
+        """Installs or reinstalls this bot's hooks."""
         self.custom_handlers.update(self.custom_handlers)
         if self.arg_commands_with_message:
             new_commands = deepcopy(self._defined_command_dict)
@@ -311,6 +312,7 @@ class IrcBot(hooks.HookHandler):
 
     async def hot_reload(self):
         """Reload the handlers."""
+        log("Hot reloading...\n\n")
         self._hot_reload()
         self.custom_handlers.update(self.custom_handlers)
         if self.arg_commands_with_message:
@@ -319,7 +321,7 @@ class IrcBot(hooks.HookHandler):
             self.set_commands(new_commands, prefix=self.command_prefix)
 
     async def _mainloop(self, async_callback: AsyncCallback | None):
-        self._install_hooks()
+        self.install_hooks()
         self.is_running_with_callback = bool(async_callback)
         self.async_callback = async_callback
         while True:
