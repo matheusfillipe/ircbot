@@ -4,6 +4,7 @@ import re
 
 class Style:
     reset = "\x0F"
+    str: str
 
 
 class TextStyle(Style):
@@ -159,7 +160,7 @@ def markdown_to_irc(content: str, syntax_highlighting: bool = False) -> str:
         try:
             Lexer = lexers.find_lexer_class_by_name(lang)
         except ClassNotFound:
-            Lexer = lexers.BashLexer
+            Lexer = lexers.TextLexer
 
         return pygments.highlight(content, Lexer(), formatters.IRCFormatter(bg="dark"))
 
@@ -179,7 +180,22 @@ def markdown_to_irc(content: str, syntax_highlighting: bool = False) -> str:
                     output += Color(f" {inner} ", fg=Color.light_gray, bg=Color.black).str
         else:
             lang, code = part.split("\n", 1)
-            for line in code.split("\n"):
-                output += highlight_code(line, lang.strip() or "bash")
+            highlighted_text = highlight_code(code, lang.strip() or "bash")
+
+            # We need to restore the unclosed escape sequences for each of the lines
+            color = ""
+            for line in highlighted_text.split("\n"):
+                if color:
+                    line = color + line
+
+                output += line + "\n"
+
+                for i, char in enumerate(line):
+                    if char == Color.esc:
+                        match = re.search(r"\x03\d{1,2}(,\d{1,2})?.*$", line[i:])
+                        if match:
+                            color = f"\x03{match[0]}{match[1] or ''}"
+                        else:
+                            color = ""
 
     return output

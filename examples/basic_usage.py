@@ -54,12 +54,17 @@ async def list_u(args, message):
 
 
 @bot.arg_command("code")
-def code(args, message):
+async def code(args, message):
     block = """Sure! Here's an example of a *Python* _function_ that takes a string
 containing Markdown and converts it into an IRC formatted text string: 
  
 ```python 
 def markdown_to_irc(markdown_string): 
+    \"""
+    Converts markdown to IRC format.
+    
+    :param markdown_string: str. Markdown string.
+    \"""
     irc_string = markdown_string 
  
     # Replace emphasis symbols with IRC formatting codes 
