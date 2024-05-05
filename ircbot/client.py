@@ -550,6 +550,34 @@ class IrcBot(hooks.HookHandler):
         else:
             await self._send_message(message, channel)
 
+    def format_reply_message(self, reply_to: Message, message: str) -> str:
+        """Define how a reply message should look be formatted."""
+        return f"{reply_to.sender_nick}: {message}"
+
+    def _format_reply_message(self, reply_to: Message, message: Sendable) -> Sendable:
+        if isinstance(message, str):
+            return self.format_reply_message(reply_to, message)
+        elif isinstance(message, Color):
+            return self.format_reply_message(reply_to, message.str)
+        elif isinstance(message, list):
+            msgs = []
+            for msg in message:
+                msgs.append(self._format_reply_message(reply_to, msg))
+            return msgs
+        elif isinstance(message, Message):
+            return self.format_reply_message(reply_to, message.message)
+        else:
+            raise ValueError("Message must be a str, a list of str, a Message object or a Color object")
+
+    async def reply(self, reply_to: Message, message: Sendable):
+        """Replies to a message prepending it with the sender's nick.
+
+        :param message: Can be a str, a list of str or a IrcBot.Message object.
+        :param msg: Any sendable message object.
+        """
+        sendable = self._format_reply_message(reply_to, message)
+        await self.send_message(sendable, reply_to.channel)
+
     async def _send_message(self, message: Sendable, channel: str):
         if isinstance(message, str):
             message = message.replace("\n", "    ")
