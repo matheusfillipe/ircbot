@@ -46,26 +46,41 @@ ArgCommandCallback = Callable[[re.Match, Message], HookReturn]
 class HookHandler:
     """Defines the behavior of the bot"""
 
-    parse_order = False
+    def __init__(self):
+        self.parse_order = False
 
-    # COMMAND DECORATORS
-    regex_commands: list[dict[Regex, Callable]] = []
-    regex_commands_accept_pm: list[bool] = []
+        # COMMAND DECORATORS
+        self.regex_commands: list[dict[Regex, Callable]] = []
+        self.regex_commands_accept_pm: list[bool] = []
 
-    regex_commands_with_message: list[dict[Regex, RegexWithMessageCallback]] = []
-    regex_commands_with_message_accept_pm: list[bool] = []
-    regex_commands_with_message_pass_data: list[bool] = []
+        self.regex_commands_with_message: list[dict[Regex, RegexWithMessageCallback]] = []
+        self.regex_commands_with_message_accept_pm: list[bool] = []
+        self.regex_commands_with_message_pass_data: list[bool] = []
 
-    url_commands: list[UrlCallback] = []
+        self.url_commands: list[UrlCallback] = []
+        self.custom_handlers: dict[str, Callable] = {}
+        self.arg_commands_with_message = {}
 
-    custom_handlers: dict[str, Callable] = {}
+        # HOT RELOAD
+        self.hot_reload_env = os.environ.get("IRCBOT_HOT_RELOAD", "False").lower() in ["true", "1", "yes", "on"]
+        self.hot_reload_files = set()
+        self.hot_reload_hash_map = {}
 
-    arg_commands_with_message = {}
+        # ARGUMENTS
+        self.single_match: bool = False
+        self.command_prefix: str = "!"
+        self._command_max_arguments: int = 25
+        self.simplify_arg_commands: bool = True
 
-    # HOT RELOAD
-    hot_reload_env = os.environ.get("IRCBOT_HOT_RELOAD", "False").lower() in ["true", "1", "yes", "on"]
-    hot_reload_files = set()
-    hot_reload_hash_map = {}
+        # HELP
+        self.help_msg_header: list[str] = []
+        self.help_msg: dict[str, str] = {}
+        self.help_msg_bottom: list[str] = []
+        self.commands_help = {}
+        self.help_menu_separator: str = "\n"
+        self.help_on_private: bool = False
+
+        self._defined_command_dict = {}
 
     def regex_cmd(self, filters: Regex, acccept_pms: bool = True, **kwargs):
         """regex_cmd. The function should take a match object from the re python
@@ -166,12 +181,6 @@ class HookHandler:
 
         return wrap_cmd
 
-    single_match: bool = False
-    command_prefix: str = "!"
-    _command_max_arguments: int = 25
-
-    simplify_arg_commands: bool = True
-
     def re_command(self, cmd, acccept_pms=True, pass_data=False, **kwargs):
         non_space: str = r"\S"
         return self.regex_cmd_with_messsage(
@@ -238,13 +247,6 @@ class HookHandler:
 
         return wrap_cmd
 
-    help_msg_header: list[str] = []
-    help_msg: dict[str, str] = {}
-    help_msg_bottom: list[str] = []
-    commands_help = {}
-    help_menu_separator: str = "\n"
-    help_on_private: bool = False
-
     def set_help_menu_separator(self, sep: str) -> Self:
         """Sets the separator string between the help commands. If can contain a
         '\n'.
@@ -291,8 +293,6 @@ class HookHandler:
         else:
             raise BaseException("You must pass wither a list of strings or a string")
         return self
-
-    _defined_command_dict = {}
 
     def set_commands(self, command_dict: dict, simplify: bool | None = None, prefix: str = "!"):
         """Defines commands for the bot from existing functions

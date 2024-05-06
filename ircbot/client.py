@@ -238,6 +238,8 @@ class IrcBot(hooks.HookHandler):
         :param dcc_host: str or None. ip address to bind to for passive dcc file receiving and dcc send. type: str ip or None to bind to the wildcard address. Default will try to guess (LAN IP)
         :param dcc_announce_host: str or None. ip address to announce for passive dcc file receiving and dcc send.
         """
+        super().__init__()
+
         if channels is None:
             channels = []
         if accept_join_from is None:
@@ -710,7 +712,8 @@ class IrcBot(hooks.HookHandler):
                     if current_progress <= last_:
                         return
                     last_ = current_progress
-                    await progress_callback(self, total_b / size)
+                    if progress_callback:
+                        await progress_callback(self, total_b / size)
 
                 with open(filename, "rb") if is_sender else open(filename, "wb") as f:
                     with trio.CancelScope() as cancel_scope:
@@ -734,15 +737,17 @@ class IrcBot(hooks.HookHandler):
                 await self.sleep(1)
                 # await client_stream.aclose()
                 success = True
-                if has_callback:
+                if has_callback and progress_callback:
                     await progress_callback(self, 1)
                 dcc_scope.cancel()
-            except trio.BrokenResourceError:
                 log("DCC SEND BrokenResourceError")
             except BrokenPipeError:
                 log("DCC SEND BrokenPipeError")
             except ConnectionResetError:
                 log("DCC SEND ConnectionResetError")
+            except ConnectionError:
+                log("DCC SEND ConnectionError")
+
             log("DCC SEND FINISHED")
             log(f"Sent {total_b} bytes")
 
@@ -869,14 +874,14 @@ class IrcBot(hooks.HookHandler):
                 if callable(progress_callback):
                     await progress_callback(self, 1)
 
-            except trio.BrokenResourceError:
-                log("DCC SEND BrokenResourceError")
-                return
             except BrokenPipeError:
                 log("DCC SEND BrokenPipeError")
                 return
             except ConnectionResetError:
                 log("DCC SEND ConnectionResetError")
+                return
+            except ConnectionError:
+                log("DCC SEND ConnectionError")
                 return
 
         return True
