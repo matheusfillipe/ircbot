@@ -244,6 +244,15 @@ class HookHandler:
     commands_help = {}
     help_menu_separator: str = "\n"
     help_on_private: bool = False
+    enable_help: bool = True
+
+    def set_auto_help(self, enable: bool) -> Self:
+        """setAutoHelp. Enables or disables the automatic help command.
+
+        :param enable: bool. Enable or disable the automatic help command.
+        """
+        self.enable_help = enable
+        return self
 
     def set_help_menu_separator(self, sep: str) -> Self:
         """Sets the separator string between the help commands. If can contain a
@@ -358,6 +367,9 @@ class HookHandler:
                 self.re_command(expression)(cb)
             else:
                 raise BaseException(f"Invalid command definition for {cmd}")
+
+        if not self.enable_help:
+            return
 
         self._defined_command_dict = command_dict
         if self.help_msg or self.commands_help:
