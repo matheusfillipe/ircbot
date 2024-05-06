@@ -90,6 +90,14 @@ class Color(Style):
         return self.str
 
 
+def irc_sanitize_nick(s: str) -> str:
+    nick = s.strip().casefold()
+    nick = re.sub(r"\s+", "_", nick)
+    nick = re.sub(r"[^a-z0-9_]", "", nick)
+    nick = nick.lstrip("_").rstrip("_")
+    return nick
+
+
 def truncate_words(content: str, length: int = 10, suffix: str = "...") -> str:
     """Truncates a string after a certain number of words."""
     split = content.split()
