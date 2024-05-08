@@ -384,7 +384,12 @@ class IrcBot(hooks.HookHandler):
         while True:
             data = await stream.recv()
             data = data.decode("utf-8")
-            for msg in data.split("\r\n"):
+            msgs = data.split("\r\n")
+            if not data or not any(msgs):
+                await self.sleep(0.01)
+                continue
+
+            for msg in msgs:
                 debug("RECV --------- " + msg)
                 if c > MAX:
                     return
@@ -429,7 +434,7 @@ class IrcBot(hooks.HookHandler):
         await stream.send_all(usernam_cr)
 
         try:
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(15):
                 await self.ping_confirmation(stream)
                 log("SUBMITTING PING COOKIE CONFIRMATION")
         except asyncio.TimeoutError:
@@ -448,6 +453,7 @@ class IrcBot(hooks.HookHandler):
             await stream.send_all(("AUTHENTICATE PLAIN").encode())
             sep = "\x00"
             b = base64.b64encode((self.nick + sep + self.nick + sep + self.password).encode("utf8")).decode("utf8")
+            # TODO be aware recv can be empty
             data = (await stream.recv()).decode("utf-8")
             log("Server SAYS: ", data)
             await stream.send_all(("AUTHENTICATE " + b).encode())
@@ -653,6 +659,10 @@ class IrcBot(hooks.HookHandler):
                 data = data.decode("utf-8")
             except UnicodeDecodeError:
                 continue
+            msgs = data.split("\r\n")
+            if not data or not any(msgs):
+                await self.sleep(0.01)
+                continue
             debug(
                 "\n>>>> DECODED DATA FROM SERVER: \n",
                 60 * "-",
@@ -662,7 +672,7 @@ class IrcBot(hooks.HookHandler):
                 "\n",
             )
             self.fetch_tables()
-            await asyncio.gather(*[self.data_handler(data) for data in data.split("\r\n")])
+            await asyncio.gather(*[self.data_handler(data) for data in msgs])
 
     async def process_result(self, result, channel, sender_nick, is_private):
         if isinstance(result, ReplyIntent):
