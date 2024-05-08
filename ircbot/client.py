@@ -653,6 +653,10 @@ class IrcBot(hooks.HookHandler):
                 data = data.decode("utf-8")
             except UnicodeDecodeError:
                 continue
+            msgs = data.split("\r\n")
+            if not data or not any(msgs):
+                await self.sleep(0.01)
+                continue
             debug(
                 "\n>>>> DECODED DATA FROM SERVER: \n",
                 60 * "-",
@@ -662,7 +666,7 @@ class IrcBot(hooks.HookHandler):
                 "\n",
             )
             self.fetch_tables()
-            await asyncio.gather(*[self.data_handler(data) for data in data.split("\r\n")])
+            await asyncio.gather(*[self.data_handler(data) for data in msgs])
 
     async def process_result(self, result, channel, sender_nick, is_private):
         if isinstance(result, ReplyIntent):
