@@ -153,8 +153,8 @@ class TCPStream:
         self.writer.write(data)
         await self.writer.drain()
 
-    async def recv(self, n: int = 2048) -> bytes:
-        return await self.reader.read(n)
+    async def recv(self) -> bytes:
+        return await self.reader.readline()
 
     async def aclose(self):
         self.writer.close()
@@ -448,13 +448,13 @@ class IrcBot(hooks.HookHandler):
             await stream.send_all(("AUTHENTICATE PLAIN").encode())
             sep = "\x00"
             b = base64.b64encode((self.nick + sep + self.nick + sep + self.password).encode("utf8")).decode("utf8")
-            data = (await stream.recv(4096)).decode("utf-8")
+            data = (await stream.recv()).decode("utf-8")
             log("Server SAYS: ", data)
             await stream.send_all(("AUTHENTICATE " + b).encode())
             log("PERFORMING SASL PLAIN AUTH....")
-            data = (await stream.recv(4096)).decode("utf-8")
+            data = (await stream.recv()).decode("utf-8")
             log("Server SAYS: ", data)
-            data = (await stream.recv(4096)).decode("utf-8")
+            data = (await stream.recv()).decode("utf-8")
             log("Server SAYS: ", data)
             await stream.send_all(("CAP END").encode())
 
