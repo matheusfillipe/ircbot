@@ -66,7 +66,7 @@ class Color(Style):
         "15",
     ]
 
-    def __init__(self, text: str, fg: str, bg: str | None = None):
+    def __init__(self, text: str, fg: str = '', bg: str | None = None):
         if bg is not None:
             self.text = "{}{},{}{}".format(self.esc, fg, bg, text)
         else:

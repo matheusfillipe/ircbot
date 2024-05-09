@@ -289,7 +289,7 @@ class IrcBot(hooks.HookHandler):
         self.db_operation_queue = asyncio.Queue()
         self.replyIntents = {}
 
-        self.ping_delay = 30  # seconds
+        self.ping_delay = 8  # seconds
 
         self.is_running_with_callback = False
         self.async_callback = None
