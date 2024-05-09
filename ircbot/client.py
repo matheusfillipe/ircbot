@@ -289,7 +289,7 @@ class IrcBot(hooks.HookHandler):
         self.db_operation_queue = asyncio.Queue()
         self.replyIntents = {}
 
-        self.ping_delay = 30  # seconds
+        self.ping_delay = 8  # seconds
 
         self.is_running_with_callback = False
         self.async_callback = None
@@ -574,6 +574,8 @@ class IrcBot(hooks.HookHandler):
             return msgs
         elif isinstance(message, Message):
             return self.format_reply_message(reply_to, message.message)
+        elif isinstance(message, ReplyIntent):
+            pass
         else:
             raise ValueError("Message must be a str, a list of str, a Message object or a Style object")
 
@@ -598,6 +600,8 @@ class IrcBot(hooks.HookHandler):
                 await self._send_message(msg, channel)
         elif isinstance(message, Message):
             await self._send_message(message.message, message.channel)
+        elif isinstance(message, ReplyIntent):
+            pass
         else:
             raise ValueError("Message must be a str, a list of str, a Message object or a Style object")
 
