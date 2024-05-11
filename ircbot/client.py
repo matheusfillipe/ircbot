@@ -22,7 +22,7 @@ from copy import copy, deepcopy
 from functools import partial
 from math import ceil
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Literal
 
 from cachetools import TTLCache
 
@@ -39,7 +39,7 @@ BUFFSIZE = 2048
 MAX_MESSAGE_LEN = 410
 
 
-class BotConnectionError(Exception):
+class BotConnectionError(ConnectionError):
     pass
 
 
@@ -161,6 +161,7 @@ class TCPStream:
         await self.writer.wait_closed()
 
     def close(self):
+        self.reader.feed_eof()
         self.writer.close()
 
 
@@ -189,14 +190,14 @@ class IrcBot(hooks.HookHandler):
     connected: bool
     server_channels: dict
     channel_names: dict
-    replyIntents: dict
+    reply_intents: dict
     ping_delay: int
     is_running_with_callback: bool
     async_callback: AsyncCallback | None
     retry_connecting: bool
     message_queue: asyncio.Queue[str]
     db_operation_queue: asyncio.Queue[PersistentData]
-    stream: TCPStream
+    stream: TCPStream | None
     _data: Any
 
     def __init__(
@@ -218,6 +219,7 @@ class IrcBot(hooks.HookHandler):
         dcc_ports: list[int] | None = None,
         dcc_host: str | None = None,
         dcc_announce_host: str | None = None,
+        retry_connecting: bool = True,
     ):
         """Creates a bot instance joining to the channel if specified.
 
@@ -237,6 +239,7 @@ class IrcBot(hooks.HookHandler):
         :param dcc_ports: list[int] or None. List of ports numbers to use for dcc
         :param dcc_host: str or None. ip address to bind to for passive dcc file receiving and dcc send. type: str ip or None to bind to the wildcard address. Default will try to guess (LAN IP)
         :param dcc_announce_host: str or None. ip address to announce for passive dcc file receiving and dcc send.
+        :param retry_connecting: bool. Should the bot try to reconnect if disconnected?
         """
         super().__init__()
 
@@ -287,13 +290,17 @@ class IrcBot(hooks.HookHandler):
 
         self.message_queue = asyncio.Queue()
         self.db_operation_queue = asyncio.Queue()
-        self.replyIntents = {}
+        self.reply_intents = {}
 
         self.ping_delay = 8  # seconds
 
         self.is_running_with_callback = False
         self.async_callback = None
-        self.retry_connecting = False
+        self.retry_connecting = retry_connecting
+
+        self.self_closed = False
+        self.stream: TCPStream | None = None
+        self.loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def data(self):
@@ -326,18 +333,26 @@ class IrcBot(hooks.HookHandler):
         self.install_hooks()
         self.is_running_with_callback = bool(async_callback)
         self.async_callback = async_callback
-        while True:
+        self.loop = asyncio.get_event_loop()
+
+        while not self.self_closed:
             try:
                 await self._main_task()
             except (BotConnectionError, socket.gaierror):
+                if not self.self_closed:
+                    break
                 log(f"Attempting to reconnect in {self.ping_delay / 2}...")
                 await asyncio.sleep(self.ping_delay / 2)
+        log("Bot closed")
 
     async def _main_task(self):
-        if self.async_callback is None:
-            await self.connect()
-        else:
-            await self.start_with_callback()
+        try:
+            if self.async_callback is None:
+                await self.connect()
+            else:
+                await self.start_with_callback()
+        except asyncio.CancelledError:
+            log("Bot task cancelled")
 
     def run_with_callback(self, async_callback: AsyncCallback):
         """starts the bot with an async callback.
@@ -381,7 +396,7 @@ class IrcBot(hooks.HookHandler):
         MAX = 10
         c = 0
         log("AWAITING PING CONFIRMATION.....")
-        while True:
+        while not self.self_closed:
             data = await stream.recv()
             data = data.decode("utf-8")
             msgs = data.split("\r\n")
@@ -434,19 +449,23 @@ class IrcBot(hooks.HookHandler):
         await stream.send_all(usernam_cr)
 
         try:
-            async with asyncio.timeout(15):
+            async with asyncio.timeout(2):
                 await self.ping_confirmation(stream)
                 log("SUBMITTING PING COOKIE CONFIRMATION")
         except asyncio.TimeoutError:
             log("NO PING CONFIRMATION!!!!!")
+        except ConnectionResetError as e:
+            if self.self_closed:
+                return
+            raise e
 
         if self.password:
             log("IDENTIFYING")
             auth_cr = ("PRIVMSG NickServ :IDENTIFY " + self.password + "\r\n").encode()
             await stream.send_all(auth_cr)
 
-        if self.delay:
-            await asyncio.sleep(self.delay)
+        await self.sleep(self.delay)
+
         if self.use_sasl:
             import base64
 
@@ -483,15 +502,19 @@ class IrcBot(hooks.HookHandler):
         await asyncio.gather(*tasks)
 
     async def check_reconnect(self):
+        if not self.retry_connecting:
+            return
+
         await self.sleep(self.ping_delay)
-        while True:
+        while not self.self_closed:
             if not self.connected:
                 break
             self.connected = False
             await self.send_raw(f"PING {self.host}\r\n")
             await self.sleep(self.ping_delay)
         log("Disconnected!! Attempting to reconnect...")
-        await self.stream.aclose()
+        if self.stream:
+            await self.stream.aclose()
         raise BotConnectionError("Bot Disconnected: No ping response from server")
 
     async def send_raw(self, data: str):
@@ -510,7 +533,8 @@ class IrcBot(hooks.HookHandler):
         :param channel: str. Channel name. Include the '#', eg. "#lobby"
         """
         log("Joining", channel)
-        await self.stream.send_all(("JOIN " + channel + " \r\n").encode())  # chanel
+        if self.stream:
+            await self.stream.send_all(("JOIN " + channel + " \r\n").encode())  # chanel
 
     async def list_channels(self):
         """list_channels of the irc server.
@@ -575,7 +599,7 @@ class IrcBot(hooks.HookHandler):
         elif isinstance(message, Message):
             return self.format_reply_message(reply_to, message.message)
         elif isinstance(message, ReplyIntent):
-            pass
+            return self._format_reply_message(reply_to, message.message)
         else:
             raise ValueError("Message must be a str, a list of str, a Message object or a Style object")
 
@@ -605,8 +629,12 @@ class IrcBot(hooks.HookHandler):
         else:
             raise ValueError("Message must be a str, a list of str, a Message object or a Style object")
 
+    async def wait_for_messages_sent(self):
+        """Waits for all messages to be sent."""
+        await self.message_queue.join()
+
     async def message_task_loop(self):
-        while True:
+        while not self.self_closed:
             try:
                 msg = await self.message_queue.get()
                 await self._send_data(msg)
@@ -619,7 +647,8 @@ class IrcBot(hooks.HookHandler):
 
     async def _send_data(self, data):
         debug("Sending: ", f"{data=}")
-        await self.stream.send_all(data.encode())
+        if self.stream:
+            await self.stream.send_all(data.encode())
 
     async def check_tables(self):
         debug("Checking tables")
@@ -641,7 +670,7 @@ class IrcBot(hooks.HookHandler):
         await self.db_operation_queue.put(table)
 
     async def db_operation_loop(self):
-        while True:
+        while not self.self_closed:
             try:
                 table = await self.db_operation_queue.get()
                 for op in table._queue:
@@ -657,7 +686,7 @@ class IrcBot(hooks.HookHandler):
 
     async def run_bot_loop(self, stream: TCPStream):
         """Starts main bot loop waiting for messages."""
-        while True:
+        while not self.self_closed:
             data = await stream.recv()
             try:
                 data = data.decode("utf-8")
@@ -683,15 +712,15 @@ class IrcBot(hooks.HookHandler):
             if result.message:
                 await self.send_message(result.message, sender_nick if is_private else channel)
                 if type(result.message) == Message:
-                    if result.message.channel not in self.replyIntents:
-                        self.replyIntents[result.message.channel] = {}
+                    if result.message.channel not in self.reply_intents:
+                        self.reply_intents[result.message.channel] = {}
                     debug("Saving message intent")
-                    self.replyIntents[result.message.channel][result.message.sender_nick] = result
+                    self.reply_intents[result.message.channel][result.message.sender_nick] = result
                     return
 
-            if channel not in self.replyIntents:
-                self.replyIntents[channel] = {}
-            self.replyIntents[channel][sender_nick] = result
+            if channel not in self.reply_intents:
+                self.reply_intents[channel] = {}
+            self.reply_intents[channel][sender_nick] = result
             debug("Saving basic intent")
         else:
             await self.send_message(result, sender_nick if is_private else channel)
@@ -935,7 +964,7 @@ class IrcBot(hooks.HookHandler):
 
     async def wait_for(
         self,
-        type: str,
+        type: Literal["dccsend", "dccreject", "privmsg", "ping", "channel", "names", "who"],
         from_nick: str | None = None,
         timeout: int = 0,
         cache_ttl: int = 0,
@@ -1305,14 +1334,14 @@ class IrcBot(hooks.HookHandler):
                 msg = re.sub(r"\003\d\d(?:,\d\d)?", "", msg)
                 debug(f"PARSED MESSAGE: {msg}")
 
-                if channel in self.replyIntents and sender_nick in self.replyIntents[channel]:
+                if channel in self.reply_intents and sender_nick in self.reply_intents[channel]:
                     _message = Message(channel, sender_nick, msg, is_private)
                     result = await self._call_cb(
-                        self.replyIntents[channel][sender_nick].func,
+                        self.reply_intents[channel][sender_nick].func,
                         _message,
                         _message,
                     )
-                    del self.replyIntents[channel][sender_nick]
+                    del self.reply_intents[channel][sender_nick]
                     await self.process_result(result, channel, sender_nick, is_private)
                     return
 
@@ -1418,10 +1447,18 @@ class IrcBot(hooks.HookHandler):
         return cb(*args, **kwargs)
 
     def __del__(self):
-        try:
+        self.connected = False
+        self.self_closed = True
+        if self.stream:
             self.stream.close()
-        except:
-            pass
+
+        if self.loop is not None:
+            try:
+                pending = asyncio.all_tasks(self.loop)
+                for task in pending:
+                    task.cancel()
+            except RuntimeError:
+                return
 
     def close(self):
         """Stops the bot and loop if running."""

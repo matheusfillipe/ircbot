@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest==8.2.0
+testcontainers==4.4.0
+pytest-asyncio==0.23.6

@@ -1,4 +1,7 @@
-from typing import TypeAlias
+from __future__ import annotations
+
+from collections.abc import Awaitable
+from typing import Callable, TypeAlias
 
 from ircbot.format import Style
 
@@ -33,10 +36,11 @@ class Message(object):
 
 
 class ReplyIntent(object):
-    def __init__(self, message, func):
-        """__init__.
+    def __init__(self, message: Sendable, func: Callable[[Message], Sendable | Awaitable[Sendable]]):
+        """Handles Nick and channel specific itent to reply to a message with a custom callback.
 
-        :param message: Message to send. You can use a message object if you want to change channel or make it a pm.  :param func: Function to call passing the received full message string that the user will reply with. This is useful for building dialogs. This function must either return None, a message to send back (str or IrcBot.Message) or another ReplyIntent. It must receive one argument."""
+        :param message: Message to send. You can use a message object if you want to change channel or make it a pm.
+        :param func: Function to call passing the received full message string that the user will reply with. This is useful for building dialogs. This function must either return None, a message to send back (str or IrcBot.Message) or another ReplyIntent. It must receive one argument."""
         self.func = func
         self.message = message
 
