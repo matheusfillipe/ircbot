@@ -2,7 +2,7 @@ name: modules
 
 on:
   push:
-    branches: '**'
+    branches: main
   pull_request:
     branches: main
 
@@ -21,4 +21,4 @@ jobs:
 
       - run: pip install -r requirements-dev.txt
 
-      - run: python -m pytest tests/
+      - run: python -m pytest tests/ -vvv -s
