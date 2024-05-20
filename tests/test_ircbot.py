@@ -43,7 +43,7 @@ def test_reply_intent(bot: IrcBot, watcher: Connection):
     async def callback(message):
         return "response"
 
-    @bot.regex_cmd_with_messsage(r"^command_test_reply_intent$", True)
+    @bot.regex_cmd_with_message(r"^command_test_reply_intent$", True)
     def command_test_reply_intent(args, message):
         return ReplyIntent(Message(channel=message.channel, message="Reply intent test"), callback)
 

@@ -186,7 +186,7 @@ def getName(msg):
     return ReplyIntent(MSGS.include_age, getAge)
 
 
-@bot.regex_cmd_with_messsage(getcmd(CMDS.include), ACCEPT_PRIVATE_MESSAGES)
+@bot.regex_cmd_with_message(getcmd(CMDS.include), ACCEPT_PRIVATE_MESSAGES)
 def include(m, message):
     nick = message.sender_nick
     for user in users.data:
@@ -208,7 +208,7 @@ def include(m, message):
 ####################################################################################################
 
 
-@bot.regex_cmd_with_messsage(getcmd(CMDS.find), ACCEPT_PRIVATE_MESSAGES)
+@bot.regex_cmd_with_message(getcmd(CMDS.find), ACCEPT_PRIVATE_MESSAGES)
 def find(m, message):
     log(str(users.data))
     query = m.group(1)
@@ -301,7 +301,7 @@ def find(m, message):
         )
 
 
-@bot.regex_cmd_with_messsage(getcmd(CMDS.show), ACCEPT_PRIVATE_MESSAGES)
+@bot.regex_cmd_with_message(getcmd(CMDS.show), ACCEPT_PRIVATE_MESSAGES)
 def show(m, message):
     search_nick = m.group(1)
     return_value = ""
@@ -319,7 +319,7 @@ def show(m, message):
     )
 
 
-@bot.regex_cmd_with_messsage(getcmd(CMDS.delete), ACCEPT_PRIVATE_MESSAGES)
+@bot.regex_cmd_with_message(getcmd(CMDS.delete), ACCEPT_PRIVATE_MESSAGES)
 def delete(m, message):
     nick = message.sender_nick
     for user in users.data:

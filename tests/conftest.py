@@ -47,7 +47,7 @@ class WatcherBot(IrcBot):
                 await self.send_message(obj)
 
     async def _mainloop(self, async_callback: IrcBot.AsyncCallback | None):
-        @self.regex_cmd_with_messsage(r".*", True)
+        @self.regex_cmd_with_message(r".*", True)
         def watch_all(args, message):
             self.pipe_connection.send(message)
 

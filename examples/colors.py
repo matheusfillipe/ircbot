@@ -30,13 +30,13 @@ gayColors = copy(Color.COLORS)
 [gayColors.remove(k) for k in [Color.white, Color.gray, Color.light_gray, Color.black]]
 
 
-@bot.regex_cmd_with_messsage("^gay (.+)$", ACCEPT_PRIVATE_MESSAGES)
+@bot.regex_cmd_with_message("^gay (.+)$", ACCEPT_PRIVATE_MESSAGES)
 def gay(args, message):
     # use .text or .str to extract string values
     return "".join([Color(c, random.choice(gayColors)).str for c in args[1]])
 
 
-@bot.regex_cmd_with_messsage("^sep$", ACCEPT_PRIVATE_MESSAGES)
+@bot.regex_cmd_with_message("^sep$", ACCEPT_PRIVATE_MESSAGES)
 def separator(args, message):
     # you can also retunr a Color object or a list of colors
     return [

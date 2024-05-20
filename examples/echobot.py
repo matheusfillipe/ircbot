@@ -9,7 +9,7 @@ def echo(args, message):
     return Color(" ".join(utils.m2list(args)), Color.random())
 
 
-@bot.regex_cmd_with_messsage("^hi$", False)
+@bot.regex_cmd_with_message("^hi$", False)
 def hi(args, message):
     return "hello!"
 

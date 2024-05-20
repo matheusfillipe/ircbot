@@ -104,7 +104,7 @@ class HookHandler:
 
         return wrap_cmd
 
-    def regex_cmd_with_messsage(self, filters: Regex, acccept_pms: bool = True, pass_data: bool = False, **kwargs):
+    def regex_cmd_with_message(self, filters: Regex, acccept_pms: bool = True, pass_data: bool = False, **kwargs):
         """regex_cmd_with_sender. The function should take a match object from the
         re python library and a IrcBot.Message as a second parameter.
 
@@ -183,7 +183,7 @@ class HookHandler:
 
     def re_command(self, cmd, acccept_pms=True, pass_data=False, **kwargs):
         non_space: str = r"\S"
-        return self.regex_cmd_with_messsage(
+        return self.regex_cmd_with_message(
             rf"^{re.escape(self.command_prefix)}{cmd}{f'(?: +({non_space}+))?'*self._command_max_arguments} *$",
             acccept_pms,
             pass_data,
