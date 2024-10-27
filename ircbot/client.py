@@ -220,6 +220,7 @@ class IrcBot(hooks.HookHandler):
         dcc_host: str | None = None,
         dcc_announce_host: str | None = None,
         retry_connecting: bool = True,
+        disable_automatic_help: bool = False,
     ):
         """Creates a bot instance joining to the channel if specified.
 
@@ -240,6 +241,7 @@ class IrcBot(hooks.HookHandler):
         :param dcc_host: str or None. ip address to bind to for passive dcc file receiving and dcc send. type: str ip or None to bind to the wildcard address. Default will try to guess (LAN IP)
         :param dcc_announce_host: str or None. ip address to announce for passive dcc file receiving and dcc send.
         :param retry_connecting: bool. Should the bot try to reconnect if disconnected?
+        :param disable_automatic_help: bool. Disables the automatic help command.
         """
         super().__init__()
 
@@ -301,6 +303,7 @@ class IrcBot(hooks.HookHandler):
         self.self_closed = False
         self.stream: TCPStream | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
+        self.disable_automatic_help = disable_automatic_help
 
     @property
     def data(self):

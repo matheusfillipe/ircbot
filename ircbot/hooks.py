@@ -74,6 +74,7 @@ class HookHandler:
 
         # HELP
         self.help_msg_header: list[str] = []
+        self.disable_automatic_help: bool = False
         self.help_msg: dict[str, str] = {}
         self.help_msg_bottom: list[str] = []
         self.commands_help = {}
@@ -360,7 +361,7 @@ class HookHandler:
                 raise BaseException(f"Invalid command definition for {cmd}")
 
         self._defined_command_dict = command_dict
-        if self.help_msg or self.commands_help:
+        if (self.help_msg or self.commands_help) and not self.disable_automatic_help:
             _commands = find_shortest_prefix([c for c in command_dict.keys() if not not_regex(c)] + ["help"])
 
             def help_menu(args, message):
