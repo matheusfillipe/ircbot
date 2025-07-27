@@ -708,7 +708,8 @@ class IrcBot(hooks.HookHandler):
                 "\n",
             )
             self.fetch_tables()
-            await asyncio.gather(*[self.data_handler(data) for data in msgs])
+            for data in msgs:
+                asyncio.create_task(self.data_handler(data))
 
     async def process_result(self, result, channel, sender_nick, is_private):
         if isinstance(result, ReplyIntent):

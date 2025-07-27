@@ -44,7 +44,7 @@ setuptools.setup(
     name="re-ircbot",
     version=VERSION,
     author="Matheus Fillipe",
-    author_email="mattf@tilde.club",
+    author_email="mattf@mattf.one",
     description="A simple async irc bot framework with regex command definitions and data permanency",
     long_description=long_description,
     long_description_content_type="text/markdown",
