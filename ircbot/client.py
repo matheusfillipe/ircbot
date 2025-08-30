@@ -27,7 +27,7 @@ from typing import Any, Awaitable, Callable, Literal
 from cachetools import TTLCache
 
 from ircbot import dcc, hooks
-from ircbot.message import Message, RawMessage, ReplyIntent, Sendable, Style
+from ircbot.message import Message, MessageTags, RawMessage, ReplyIntent, Sendable, Style
 from ircbot.sqlitedb import DB
 from ircbot.utils import debug, log, logger, validate_url
 
@@ -37,6 +37,8 @@ RawMessage = RawMessage
 
 BUFFSIZE = 2048
 MAX_MESSAGE_LEN = 410
+
+SupportedCapabilities = Literal["message-tags"]
 
 
 class BotConnectionError(ConnectionError):
@@ -221,6 +223,7 @@ class IrcBot(hooks.HookHandler):
         dcc_announce_host: str | None = None,
         retry_connecting: bool = True,
         disable_automatic_help: bool = False,
+        capabilities: list[SupportedCapabilities] | None = None,
     ):
         """Creates a bot instance joining to the channel if specified.
 
@@ -242,6 +245,7 @@ class IrcBot(hooks.HookHandler):
         :param dcc_announce_host: str or None. ip address to announce for passive dcc file receiving and dcc send.
         :param retry_connecting: bool. Should the bot try to reconnect if disconnected?
         :param disable_automatic_help: bool. Disables the automatic help command.
+        :param capabilities: list of str or None. List of capabilities to request from the server after connecting. Supported: "message-tags"
         """
         super().__init__()
 
@@ -304,6 +308,7 @@ class IrcBot(hooks.HookHandler):
         self.stream: TCPStream | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self.disable_automatic_help = disable_automatic_help
+        self.capabilities = capabilities or []
 
     @property
     def data(self):
@@ -497,6 +502,18 @@ class IrcBot(hooks.HookHandler):
             raise ValueError("Channels must be a list or a string")
 
         self.connected = True
+
+        await stream.recv()  # empty recv to clear buffer
+        if self.capabilities:
+            for cap in self.capabilities:
+                match cap:
+                    case "message-tags":
+                        await self.send_raw("CAP REQ message-tags")
+                        data = await stream.recv()
+                        if "ACK" in data.decode("utf-8"):
+                            log("Server accepted message-tags capability")
+                        else:
+                            log("Server denied message-tags capability")
 
         log("Listening for messages...")
         tasks = [self.run_bot_loop(stream), self.message_task_loop(), self.check_reconnect()]
@@ -1043,11 +1060,23 @@ class IrcBot(hooks.HookHandler):
             self._awaiting_messages[key].pop(idx)
         return msg["message"] if msg else {}
 
+    def _parse_message_with_tags(self, data: str) -> tuple[str, MessageTags | None]:
+        """Parse IRC message separating tags from the main message"""
+        if data.startswith("@"):
+            tag_end = data.find(" ")
+            if tag_end != -1:
+                raw_tags = data[1:tag_end]
+                message_data = data[tag_end + 1 :]
+                return message_data, MessageTags(raw_tags)
+        return data, None
+
     # MAIN DATA RECEIVING HANDLER
     async def data_handler(self, data: str):
         nick = self.nick
         host = self.host
         self.connected = True
+
+        message_data, tags = self._parse_message_with_tags(data)
 
         try:
             if self._hot_reload_if_changed():
@@ -1179,9 +1208,11 @@ class IrcBot(hooks.HookHandler):
 
         message = None
         for pattern in IRC_P:
-            g = re.match(pattern, data)
+            g = re.match(pattern, message_data)
             if g:
                 message = IRC_P[g.re.pattern](g)
+                if tags:
+                    message["tags"] = tags
                 break
 
         if message:
@@ -1270,29 +1301,29 @@ class IrcBot(hooks.HookHandler):
                 self.server_channels[message["channel"]] = message["chandescription"]
                 return
 
-        if len(data) <= 1:
+        if len(message_data) <= 1:
             return
-        debug("processing -> ", data)
+        debug("processing -> ", message_data)
         try:
             # TODO clear this mess
             # This is for replying to users's ping requests
             if (
-                data.find("PING") != -1
-                and len(data.split(":")) >= 3
-                and "PING" in data.split(":")[2]
+                message_data.find("PING") != -1
+                and len(message_data.split(":")) >= 3
+                and "PING" in message_data.split(":")[2]
                 and message["type"] == "privmsg"
                 and message["channel"] == self.nick
             ):
-                msg = str("PONG " + data.split(":")[1].split("!~")[0] + "\r\n")
+                msg = str("PONG " + message_data.split(":")[1].split("!~")[0] + "\r\n")
                 debug("ponging: ", msg)
                 await self._enqueue_message(msg)
 
-                if data.find("PRIVMSG") != -1:
+                if message_data.find("PRIVMSG") != -1:
                     msg = str(
                         f":{nick} PRIVMSG "
-                        + data.split(":")[1].split("!~")[0]
+                        + message_data.split(":")[1].split("!~")[0]
                         + " :PONG "
-                        + data.split(" ")[-1]
+                        + message_data.split(" ")[-1]
                         + "\r\n"
                     )
                     # await s.send_all(msg.encode())
@@ -1309,15 +1340,15 @@ class IrcBot(hooks.HookHandler):
                 log("PONG sent \n")
                 return
 
-            if len(data.split()) >= 3:
-                match = re.match(r":(\S+)!\S* INVITE (\S+) (\S+)", data)
+            if len(message_data.split()) >= 3:
+                match = re.match(r":(\S+)!\S* INVITE (\S+) (\S+)", message_data)
                 if match and match[2] == self.nick:
                     log("Invited to " + match[3])
                     if match[1] in self.accept_join_from:
                         await self.join(match[3])
 
                 if message is None or message["type"] != "privmsg":
-                    debug("Regex command parser Ignoring: " + data)
+                    debug("Regex command parser Ignoring: " + message_data)
                     return
 
                 channel = message["channel"]
@@ -1327,9 +1358,9 @@ class IrcBot(hooks.HookHandler):
                 debug("sent by:", sender_nick)
                 splitter = "PRIVMSG " + channel + " :"
                 if self.strip_messages:
-                    msg = splitter.join(data.split(splitter)[1:]).strip()
+                    msg = splitter.join(message_data.split(splitter)[1:]).strip()
                 else:
-                    msg = splitter.join(data.split(splitter)[1:])
+                    msg = splitter.join(message_data.split(splitter)[1:])
                 is_private = channel == self.nick
                 channel = channel if channel != self.nick else sender_nick
                 matched = False
@@ -1339,7 +1370,9 @@ class IrcBot(hooks.HookHandler):
                 debug(f"PARSED MESSAGE: {msg}")
 
                 if channel in self.reply_intents and sender_nick in self.reply_intents[channel]:
-                    _message = Message(channel, sender_nick, msg, is_private)
+                    _message = Message(
+                        channel, sender_nick, msg, is_private, tags=message.get("tags") if message else None
+                    )
                     result = await self._call_cb(
                         self.reply_intents[channel][sender_nick].func,
                         _message,
@@ -1358,7 +1391,9 @@ class IrcBot(hooks.HookHandler):
                             if cmd in self.regex_commands:
                                 if is_private and not self.regex_commands_accept_pm[i]:
                                     continue
-                                _message = Message(channel, sender_nick, msg, is_private)
+                                _message = Message(
+                                    channel, sender_nick, msg, is_private, tags=message.get("tags") if message else None
+                                )
                                 result = await self._call_cb(cmd[reg], _message, m)
                             if result:
                                 await self.process_result(result, channel, sender_nick, is_private)
@@ -1390,6 +1425,7 @@ class IrcBot(hooks.HookHandler):
                                         msg,
                                         is_private,
                                         strip=self.strip_messages,
+                                        tags=message.get("tags") if message else None,
                                     )
                                     result = await self._call_cb(
                                         cmd[reg],
@@ -1404,6 +1440,7 @@ class IrcBot(hooks.HookHandler):
                                         msg,
                                         is_private,
                                         strip=self.strip_messages,
+                                        tags=message.get("tags") if message else None,
                                     )
                                     result = await self._call_cb(cmd[reg], _message, m, _message)
 
@@ -1429,7 +1466,9 @@ class IrcBot(hooks.HookHandler):
                             word = word[:-1]
                         if validate_url(word):
                             debug("Checking url: " + str(word))
-                            _message = Message(channel, sender_nick, msg, is_private)
+                            _message = Message(
+                                channel, sender_nick, msg, is_private, tags=message.get("tags") if message else None
+                            )
                             result = await self._call_cb(self.url_commands[-1], _message, word)
                         if result:
                             await self.send_message(result, channel)

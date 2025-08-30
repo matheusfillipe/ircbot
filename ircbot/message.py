@@ -1,9 +1,48 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable
+from datetime import datetime
 from typing import Callable, TypeAlias
 
 from ircbot.format import Style
+
+logger = logging.getLogger(__name__)
+
+
+class MessageTags:
+    def __init__(self, raw_tags: str = ""):
+        self.raw_dict: dict[str, str | bool] = {}
+        self.time: datetime | None = None
+        self.account: str | None = None
+        self.msgid: str | None = None
+        self.bot: bool = False
+
+        if raw_tags:
+            self._parse_tags(raw_tags)
+
+    def _parse_tags(self, raw_tags: str):
+        for tag_pair in raw_tags.split(";"):
+            if "=" in tag_pair:
+                key, value = tag_pair.split("=", 1)
+                self.raw_dict[key] = value
+                self._set_common_tag(key, value)
+            else:
+                self.raw_dict[tag_pair] = True
+                self._set_common_tag(tag_pair, True)
+
+    def _set_common_tag(self, key: str, value: str | bool):
+        if key == "time" and isinstance(value, str):
+            try:
+                self.time = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                logger.warning(f"Failed to parse timestamp: {value}")
+        elif key == "account" and isinstance(value, str):
+            self.account = value
+        elif key == "msgid" and isinstance(value, str):
+            self.msgid = value
+        elif key == "bot" and isinstance(value, bool):
+            self.bot = value
 
 
 class RawMessage:
@@ -15,7 +54,9 @@ class RawMessage:
 
 
 class Message(object):
-    def __init__(self, channel="", sender_nick="", message="", is_private=False, strip=True):
+    def __init__(
+        self, channel="", sender_nick="", message="", is_private=False, strip=True, tags: MessageTags | None = None
+    ):
         """Message.
 
         :param channel: Channel from/to which the message is sent or user/nick if private
@@ -23,6 +64,7 @@ class Message(object):
         :param message:str text of the message. Aliases: str, text, txt. For outgoing messages you can also set this to a Color object.
         :param is_private: If True the message came from a user
         :param strip: bool, should the message's text be stripped?
+        :param tags: IRC message tags if present
         """
         self.channel = channel.strip()
         self.sender_nick = sender_nick.strip()
@@ -33,6 +75,7 @@ class Message(object):
             self.message = message
         self.txt = self.text = self.message
         self.is_private = is_private
+        self.tags = tags or MessageTags()
 
 
 class ReplyIntent(object):
