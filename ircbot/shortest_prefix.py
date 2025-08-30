@@ -1,5 +1,6 @@
 import itertools
 
+
 # A class to store a Trie node
 class TrieNode:
     def __init__(self):
@@ -28,7 +29,7 @@ def insert(root, word):
 
 
 # Function to recursively traverse the Trie in a preorder fashion and
-def shortestPrefix(root, word_so_far):
+def shortest_prefix(root, word_so_far):
     if root is None:
         return ""
 
@@ -39,12 +40,12 @@ def shortestPrefix(root, word_so_far):
     # recur for all child nodes
     r = []
     for k, v in root.child.items():
-        r.append(shortestPrefix(v, word_so_far + k))
+        r.append(shortest_prefix(v, word_so_far + k))
     return r
 
 
 # Find the shortest unique prefix for every word in a given array
-def findShortestPrefix(words):
+def find_shortest_prefix(words):
 
     # construct a Trie from the given items
     root = TrieNode()
@@ -52,7 +53,7 @@ def findShortestPrefix(words):
         insert(root, s)
 
     # Recursively traverse the Trie in a preorder fashion to list all prefixes
-    r = shortestPrefix(root, "")
+    r = shortest_prefix(root, "")
     R = list(itertools.chain(*r))
     while any([isinstance(elm, list) for elm in R]):
         R = list(itertools.chain(*R))
@@ -60,12 +61,17 @@ def findShortestPrefix(words):
     # DIRT FIX HERE
     reordered = {}
     for r in R:
+        w = None
         for w in words:
             if w.startswith(r):
                 reordered[w] = r
                 break
-        words.remove(w)
+        if w is not None:
+            words.remove(w)
     return reordered
 
+
 if __name__ == "__main__":
-    print(findShortestPrefix(['board', 'move', 'colors', 'undo', 'hint', 'score', 'label', 'start', 'accept', 'help']))
+    print(
+        find_shortest_prefix(["board", "move", "colors", "undo", "hint", "score", "label", "start", "accept", "help"])
+    )
